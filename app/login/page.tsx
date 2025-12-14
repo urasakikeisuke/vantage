@@ -68,8 +68,12 @@ export default function LoginPage() {
         router.push("/");
         router.refresh();
       }
-    } catch (error: any) {
-      setMessage({ type: "error", text: error.message });
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        setMessage({ type: "error", text: error.message });
+      } else {
+        setMessage({ type: "error", text: "An unexpected error occurred." });
+      }
     } finally {
       setLoading(false);
     }
@@ -88,8 +92,12 @@ export default function LoginPage() {
       });
       if (error) throw error;
       // OAuthは自動的にリダイレクトされるので、ここで処理は終了
-    } catch (error: any) {
-      setMessage({ type: "error", text: error.message });
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        setMessage({ type: "error", text: error.message });
+      } else {
+        setMessage({ type: "error", text: "An unexpected error occurred." });
+      }
       setLoading(false);
     }
   };

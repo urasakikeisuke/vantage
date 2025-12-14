@@ -1,172 +1,404 @@
-// components/PortfolioChart.tsx
 "use client";
 
-import PieChartIcon from "@mui/icons-material/PieChart";
-import { Box, Card, CardContent, Grid, Typography } from "@mui/material";
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-
-const COLORS = [
-  "#0088FE",
-  "#00C49F",
-  "#FFBB28",
-  "#FF8042",
-  "#8884d8",
-  "#82ca9d",
-  "#ffc658",
-  "#a4de6c",
-];
-
-type PortfolioRow = {
-  ticker: string;
-  currentValue: number;
-  name?: string;
-  type?: string;
-};
+import { Box, Paper, Typography } from "@mui/material";
+import { useMemo } from "react";
+import { ResponsiveContainer, Tooltip, Treemap } from "recharts";
+import type { PortfolioRow } from "@/types";
+import MotionWrapper from "./MotionWrapper";
 
 type Props = {
   data: PortfolioRow[];
 };
 
-type LabelProps = {
-  cx?: number;
-  cy?: number;
-  midAngle?: number;
-  innerRadius?: number;
-  outerRadius?: number;
-  percent?: number;
-  name?: string;
+// フラットカラー定義
+const COLORS = {
+  gain: {
+    base: "#29524eff", // Teal 600
+    light: "#5e807cff", // Teal 300
+    dark: "#0d4237ff", // Teal 900
+  },
+  loss: {
+    base: "#a92e2cff", // Red 600
+    light: "#cd3939ff", // Red 300
+    dark: "#8b1b1bff", // Red 900
+  },
+  neutral: "#939393ff", // Blue Grey 600
+  text: "#f7f7f7ff",
+};
+
+// カスタムコンテンツレンダラー
+// biome-ignore lint/suspicious/noExplicitAny: Recharts Props
+const CustomContent = (props: any) => {
+  const { x, y, width, height, name, gainLossPercent, depth } = props;
+
+  // 【重要】rootノード（全体枠 depth=0）は描画しない
+  if (depth < 1) return null;
+
+  // サイズが無効または極端に小さい場合は描画しない
+  if (!width || !height || width <= 0 || height <= 0) return null;
+
+  const percent = gainLossPercent || 0;
+
+  // 色の決定 (フラットな単色)
+  let fill = COLORS.neutral;
+
+  if (percent > 0) {
+    if (percent > 20) fill = COLORS.gain.dark;
+    else if (percent > 5) fill = COLORS.gain.base;
+    else fill = COLORS.gain.light;
+  } else if (percent < 0) {
+    if (percent < -20) fill = COLORS.loss.dark;
+    else if (percent < -5) fill = COLORS.loss.base;
+    else fill = COLORS.loss.light;
+  }
+
+  // 表示領域が小さすぎる場合はテキストを表示しない
+  const showText = width > 60 && height > 50;
+  // フォントサイズの動的調整
+  const isLarge = width > 180 && height > 100;
+
+  return (
+    <g>
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        fill={fill}
+        style={{ cursor: "pointer" }}
+        // 個別のセル境界線
+        stroke="#d0d0d0ff"
+        strokeWidth={1}
+        strokeOpacity={0.1}
+      />
+
+      {showText && (
+        <foreignObject
+          x={x}
+          y={y}
+          width={width}
+          height={height}
+          style={{ pointerEvents: "none" }}
+        >
+          <Box
+            sx={{
+              width: "100%",
+              height: "100%",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "center",
+              alignItems: "center",
+              p: 1,
+              color: COLORS.text,
+              overflow: "hidden",
+            }}
+          >
+            <Typography
+              sx={{
+                fontSize: isLarge ? "24px" : "12px",
+                fontWeight: 400,
+                textAlign: "center",
+                lineHeight: 1.2,
+                // ▼ 複数行省略の設定
+                display: "-webkit-box",
+                WebkitBoxOrient: "vertical",
+                WebkitLineClamp: 2,
+                overflow: "hidden",
+                wordBreak: "break-word", // 長い単語や日本語の折り返し設定
+              }}
+            >
+              {name}
+            </Typography>
+
+            <Typography
+              sx={{
+                fontSize: isLarge ? "16px" : "10px",
+                fontWeight: 300,
+                opacity: 0.9,
+                mt: 0.5,
+              }}
+            >
+              {percent > 0 ? "+" : ""}
+              {percent.toFixed(1)}%
+            </Typography>
+          </Box>
+        </foreignObject>
+      )}
+    </g>
+  );
+};
+
+// カスタムツールチップ
+const CustomTooltip = ({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  // biome-ignore lint/suspicious/noExplicitAny: Recharts Props
+  payload?: { payload: any }[];
+}) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    if (!data || data.children || data.name === "root") return null;
+
+    return (
+      <Paper
+        elevation={4} // 影をつける
+        sx={{
+          width: 220,
+          p: 1.5,
+          // 【修正】背景色を完全不透明に設定し、MUIのオーバーレイを無効化
+          bgcolor: "#121212",
+          backgroundImage: "none",
+          border: "1px solid rgba(255,255,255,0.2)",
+          borderRadius: 1,
+        }}
+      >
+        <Typography
+          variant="subtitle2"
+          fontWeight="bold"
+          sx={{ color: "#eee" }}
+        >
+          {data.name}
+        </Typography>
+        <Typography
+          variant="caption"
+          sx={{ color: "#aaa", display: "block", mb: 0.5 }}
+        >
+          {data.sector}
+        </Typography>
+        <Box display="flex" justifyContent="space-between" gap={1} mt={1}>
+          <Typography variant="body2" color="#ccc">
+            評価額:
+          </Typography>
+          <Typography variant="body2" fontWeight="bold" color="#fff">
+            ¥{Math.round(data.value).toLocaleString()}
+          </Typography>
+        </Box>
+        <Box display="flex" justifyContent="space-between" gap={1}>
+          <Typography variant="body2" color="#ccc">
+            損益:
+          </Typography>
+          <Typography
+            variant="body2"
+            fontWeight="bold"
+            sx={{ color: data.gainLoss >= 0 ? "#4DB6AC" : "#E57373" }}
+          >
+            {data.gainLoss >= 0 ? "+" : ""}¥
+            {Math.round(data.gainLoss).toLocaleString()}
+          </Typography>
+        </Box>
+      </Paper>
+    );
+  }
+  return null;
+};
+
+// セクター境界線レンダラー
+// biome-ignore lint/suspicious/noExplicitAny: Recharts Props
+const SectorBorderContent = (props: any) => {
+  const { x, y, width, height, depth } = props;
+
+  // 【重要】rootノード（全体枠）は描画しない。これで一番外側の黒枠が消えます。
+  if (depth < 1) return null;
+
+  if (!width || !height || width <= 0 || height <= 0) return null;
+
+  return (
+    <rect
+      x={x}
+      y={y}
+      width={width}
+      height={height}
+      fill="none"
+      stroke="#121212"
+      strokeWidth={4} // セクター間の隙間
+      style={{ pointerEvents: "none" }}
+    />
+  );
 };
 
 export default function PortfolioChart({ data }: Props) {
-  const aggregateData = (items: PortfolioRow[]) => {
-    const map = new Map<string, number>();
-    items.forEach((item) => {
-      const key = item.name || item.ticker;
-      const current = map.get(key) || 0;
-      map.set(key, current + item.currentValue);
-    });
-    return Array.from(map.entries())
-      .map(([name, value]) => ({ name, value }))
-      .filter((d) => d.value > 0)
-      .sort((a, b) => b.value - a.value);
-  };
+  const treeMapData = useMemo(() => {
+    if (data.length === 0) return [];
 
-  const funds = data.filter((d) => d.type === "MUTUALFUND");
-  const fundsChartData = aggregateData(funds);
-  const stocks = data.filter((d) => d.type !== "MUTUALFUND");
-  const stocksChartData = aggregateData(stocks);
-
-  const renderCustomizedLabel = ({
-    cx,
-    cy,
-    midAngle,
-    innerRadius,
-    outerRadius,
-    percent,
-    name,
-  }: LabelProps) => {
-    const _cx = cx || 0;
-    const _cy = cy || 0;
-    const _midAngle = midAngle || 0;
-    const _innerRadius = innerRadius || 0;
-    const _outerRadius = outerRadius || 0;
-    const _percent = percent || 0;
-    const _name = name || "";
-    const RADIAN = Math.PI / 180;
-    const _radius = _innerRadius + (_outerRadius - _innerRadius) * 0.5;
-    const x = _cx + (_outerRadius + 30) * Math.cos(-_midAngle * RADIAN);
-    const y = _cy + (_outerRadius + 30) * Math.sin(-_midAngle * RADIAN);
-
-    return (
-      <text
-        x={x}
-        y={y}
-        // 修正: 文字色を明るいグレーにしてダークモードで見やすく
-        fill="#ccc"
-        textAnchor={x > _cx ? "start" : "end"}
-        dominantBaseline="central"
-        fontSize={11}
-      >
-        {`${_name} (${(_percent * 100).toFixed(0)}%)`}
-      </text>
+    // 1. 銘柄(ticker)ごとに集計
+    const grouped = data.reduce(
+      (acc, curr) => {
+        const key = curr.ticker;
+        if (!acc[key]) {
+          acc[key] = {
+            ...curr,
+            currentValue: 0,
+            investmentValue: 0,
+            gainLoss: 0,
+          };
+        }
+        acc[key].currentValue += curr.currentValue;
+        acc[key].investmentValue += curr.investmentValue;
+        acc[key].gainLoss += curr.gainLoss;
+        if (curr.sector) acc[key].sector = curr.sector;
+        if (curr.quoteType) acc[key].quoteType = curr.quoteType;
+        return acc;
+      },
+      {} as Record<string, PortfolioRow>,
     );
-  };
 
-  const renderChart = (
-    title: string,
-    chartData: { name: string; value: number }[],
-  ) => (
-    <Card sx={{ height: "100%", bgcolor: "background.paper", borderRadius: 2 }}>
-      <CardContent sx={{ pb: 1 }}>
-        <Box display="flex" alignItems="center" mb={1}>
-          <PieChartIcon color="primary" sx={{ mr: 1 }} />
-          <Typography variant="subtitle2" color="text.secondary">
-            {title}
-          </Typography>
-        </Box>
-        <Box sx={{ width: "100%", height: 240 }}>
-          {chartData.length > 0 ? (
-            <ResponsiveContainer>
-              <PieChart>
-                <Pie
-                  data={chartData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={35}
-                  outerRadius={60}
-                  paddingAngle={3}
-                  dataKey="value"
-                  stroke="none"
-                  label={renderCustomizedLabel}
-                >
-                  {chartData.map((entry, index) => (
-                    <Cell
-                      key={`cell-${entry.name}`}
-                      fill={COLORS[index % COLORS.length]}
-                    />
-                  ))}
-                </Pie>
-                <Tooltip
-                  formatter={(value: number) =>
-                    `¥${Math.round(value).toLocaleString()}`
-                  }
-                  // 修正: ダークモード風の黒背景・白文字・薄いボーダーに統一
-                  contentStyle={{
-                    backgroundColor: "rgba(30, 30, 30, 0.9)",
-                    borderColor: "rgba(255, 255, 255, 0.1)",
-                    color: "#fff",
-                    borderRadius: "8px",
-                    fontSize: "12px",
-                  }}
-                  itemStyle={{ color: "#fff" }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <Box
-              display="flex"
-              alignItems="center"
-              justifyContent="center"
-              height="100%"
-            >
-              <Typography variant="caption" color="text.secondary">
-                データなし
-              </Typography>
-            </Box>
-          )}
-        </Box>
-      </CardContent>
-    </Card>
-  );
+    const items = Object.values(grouped);
+    // biome-ignore lint/suspicious/noExplicitAny: Recharts Props
+    const sectors: Record<string, any[]> = {};
+
+    items.forEach((item) => {
+      const percent =
+        item.investmentValue !== 0
+          ? (item.gainLoss / item.investmentValue) * 100
+          : 0;
+
+      const node = {
+        name: item.name,
+        value: item.currentValue,
+        gainLoss: item.gainLoss,
+        gainLossPercent: percent,
+        sector: item.sector || "その他",
+      };
+
+      let groupKey = "株式";
+      if (item.quoteType === "MUTUALFUND" || item.type === "MUTUALFUND") {
+        groupKey = "投資信託";
+      } else if (item.sector) {
+        groupKey = item.sector;
+      }
+
+      if (!sectors[groupKey]) sectors[groupKey] = [];
+      sectors[groupKey].push(node);
+    });
+
+    const children = Object.keys(sectors)
+      .map((sectorName) => {
+        const sectorItems = sectors[sectorName].sort(
+          (a, b) => b.value - a.value,
+        );
+        return {
+          name: sectorName,
+          children: sectorItems,
+          value: sectorItems.reduce((sum, i) => sum + i.value, 0),
+        };
+      })
+      .sort((a, b) => b.value - a.value);
+
+    return [
+      {
+        name: "root",
+        children: children,
+        value: 0,
+      },
+    ];
+  }, [data]);
+
+  const sectorTreeMapData = useMemo(() => {
+    if (!treeMapData || treeMapData.length === 0) return [];
+    const root = treeMapData[0];
+    if (!root.children) return [];
+
+    const sectors = root.children.map((sector) => ({
+      name: sector.name,
+      value: sector.value,
+    }));
+
+    return [
+      {
+        name: "root",
+        children: sectors,
+        value: 0,
+      },
+    ];
+  }, [treeMapData]);
+
+  if (data.length === 0) return null;
 
   return (
-    <Grid container spacing={2} sx={{ mb: 4 }}>
-      <Grid size={{ xs: 12, md: 6 }}>
-        {renderChart("資産構成 (株式・ETF)", stocksChartData)}
-      </Grid>
-      <Grid size={{ xs: 12, md: 6 }}>
-        {renderChart("資産構成 (投資信託)", fundsChartData)}
-      </Grid>
-    </Grid>
+    <MotionWrapper delay={0.2}>
+      <Paper
+        elevation={0}
+        sx={{
+          p: 3,
+          mb: 4,
+          mt: 4,
+          bgcolor: "background.paper",
+          borderRadius: 2,
+          height: 450,
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <Typography variant="h6" gutterBottom fontWeight="bold">
+          資産構成
+        </Typography>
+
+        <Box
+          sx={{
+            flexGrow: 1,
+            width: "100%",
+            minHeight: 0,
+            position: "relative",
+            overflow: "hidden", // 外側の境界線をクリップする
+          }}
+        >
+          {/*
+            【重要】外枠の黒い線を消すためのトリック
+            コンテナを少し拡大(margin: -2px)して、strokeWidth=4の半分(2px)を
+            親のoverflow: hiddenで切り落とす。
+          */}
+          <Box
+            sx={{
+              position: "absolute",
+              top: -2,
+              left: -2,
+              right: -2,
+              bottom: -2,
+            }}
+          >
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              {/* Main Treemap */}
+              <Treemap
+                data={treeMapData}
+                dataKey="value"
+                aspectRatio={16 / 9}
+                stroke="none" // コンポーネント自体のstrokeは無効化
+                fill="transparent"
+                content={<CustomContent />}
+                isAnimationActive={false}
+              >
+                <Tooltip content={<CustomTooltip />} cursor={false} />
+              </Treemap>
+            </ResponsiveContainer>
+
+            {/* Sector Border Overlay */}
+            <Box
+              sx={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                pointerEvents: "none",
+              }}
+            >
+              <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                <Treemap
+                  data={sectorTreeMapData}
+                  dataKey="value"
+                  aspectRatio={16 / 9}
+                  stroke="none"
+                  fill="transparent"
+                  content={<SectorBorderContent />}
+                  isAnimationActive={false}
+                />
+              </ResponsiveContainer>
+            </Box>
+          </Box>
+        </Box>
+      </Paper>
+    </MotionWrapper>
   );
 }

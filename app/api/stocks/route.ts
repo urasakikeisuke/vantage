@@ -1,4 +1,3 @@
-// app/api/stocks/route.ts
 import { NextResponse } from "next/server";
 import YahooFinance from "yahoo-finance2";
 import stockData from "../../../data/jp_stocks.json";
@@ -16,6 +15,8 @@ type StockPrice = {
   shortName: string;
   dividendRate: number;
   type?: string;
+  sector?: string;
+  quoteType?: string;
 };
 
 async function fetchJapanFund(code: string): Promise<StockPrice | null> {
@@ -40,12 +41,16 @@ async function fetchJapanFund(code: string): Promise<StockPrice | null> {
     }
 
     if (!price) {
-      console.warn(`Price not found for ${code}`);
+      console.warn(`Price not found for ${code}. HTML length: ${html.length}`);
+      // ここでフォールバックロジックを入れる余地があるが、
+      // 現状はnullを返して呼び出し元で処理する（あるいはDBの前回値を参照するなど）
       return null;
     }
 
     let name = "投資信託";
-    const masterInfo = stockData.find((s) => s.symbol === code);
+    const masterInfo = (stockData as { symbol: string; name: string }[]).find(
+      (s) => s.symbol === code,
+    );
     if (masterInfo) {
       name = masterInfo.name;
     }
@@ -59,6 +64,8 @@ async function fetchJapanFund(code: string): Promise<StockPrice | null> {
       shortName: name,
       dividendRate: 0,
       type: "MUTUALFUND",
+      quoteType: "MUTUALFUND",
+      sector: "投資信託",
     };
   } catch (e) {
     console.error(`Fund error ${code}:`, e);
@@ -66,7 +73,19 @@ async function fetchJapanFund(code: string): Promise<StockPrice | null> {
   }
 }
 
+import { createClient } from "@/lib/supabase/server";
+
 export async function GET(request: Request) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error || !user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const symbolsParam = searchParams.get("symbols");
 
@@ -83,7 +102,6 @@ export async function GET(request: Request) {
           !symbol.includes(".") &&
           symbol !== "USDJPY=X" &&
           /^[0-9A-Z]{8,10}$/.test(symbol);
-
         if (isFund) {
           return await fetchJapanFund(symbol);
         }
@@ -95,8 +113,30 @@ export async function GET(request: Request) {
             { validateResult: false },
           );
 
+          let sector = "その他";
+          let quoteType = quote.quoteType;
+
+          if (symbol !== "USDJPY=X") {
+            try {
+              // biome-ignore lint/suspicious/noExplicitAny: ライブラリ型不備対応
+              const summary = await (yf as any).quoteSummary(symbol, {
+                modules: ["summaryProfile", "quoteType"],
+              });
+              if (summary.summaryProfile?.sector) {
+                sector = summary.summaryProfile.sector;
+              }
+              if (summary.quoteType?.quoteType) {
+                quoteType = summary.quoteType.quoteType;
+              }
+            } catch (e) {
+              console.warn(`Sector fetch failed for ${symbol}`, e);
+            }
+          }
+
           let stockName = quote.longName || quote.shortName || symbol;
-          const masterInfo = stockData.find((s) => s.symbol === symbol);
+          const masterInfo = (
+            stockData as { symbol: string; name: string }[]
+          ).find((s) => s.symbol === symbol);
           if (masterInfo) {
             stockName = masterInfo.name;
           }
@@ -110,7 +150,9 @@ export async function GET(request: Request) {
             shortName: stockName,
             dividendRate:
               quote.trailingAnnualDividendRate || quote.dividendRate || 0,
-            type: quote.quoteType,
+            type: quoteType,
+            quoteType: quoteType,
+            sector: sector,
           } as StockPrice;
         } catch (e) {
           console.error(`Error fetching ${symbol}:`, e);

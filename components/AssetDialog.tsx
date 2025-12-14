@@ -17,6 +17,8 @@ import {
   Typography,
 } from "@mui/material";
 import { useEffect, useState } from "react";
+import useSWR from "swr"; // 追加
+import { api } from "@/lib/api"; // 追加
 import { logOperation } from "@/lib/logger";
 import { createClient } from "@/lib/supabase/client";
 
@@ -68,7 +70,6 @@ export default function AssetDialog({
   // Autocomplete用
   const [openAuto, setOpenAuto] = useState(false);
   const [options, setOptions] = useState<SearchOption[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const [value, setValue] = useState<SearchOption | null>(null);
 
@@ -93,41 +94,28 @@ export default function AssetDialog({
     }
   }, [open, editItem]);
 
-  // 検索ロジック
-  useEffect(() => {
-    let active = true;
+  // 検索ロジック (SWR)
+  const shouldFetch = inputValue !== "";
+  const { data: searchData, isLoading: searchLoading } = useSWR(
+    shouldFetch ? ["search", inputValue] : null,
+    ([_, q]) => api.searchStocks(q),
+    {
+      keepPreviousData: true,
+      dedupingInterval: 500, // デバウンス的な効果
+    },
+  );
 
+  useEffect(() => {
     if (inputValue === "") {
       setOptions(
         editItem
           ? [{ symbol: editItem.ticker, name: "", type: "", exch: "" }]
           : [],
       );
-      return undefined;
+    } else if (searchData) {
+      setOptions(searchData.options || []);
     }
-
-    const timer = setTimeout(async () => {
-      setSearchLoading(true);
-      try {
-        const res = await fetch(
-          `/api/search?q=${encodeURIComponent(inputValue)}`,
-        );
-        const data = await res.json();
-        if (active) {
-          setOptions(data.options || []);
-        }
-      } catch (err) {
-        console.error(err);
-      } finally {
-        if (active) setSearchLoading(false);
-      }
-    }, 300);
-
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [inputValue, editItem]);
+  }, [inputValue, editItem, searchData]);
 
   const handleSubmit = async () => {
     if (!ticker || !shares || !price) return;

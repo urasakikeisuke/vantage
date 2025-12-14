@@ -1,6 +1,5 @@
 // app/api/search/route.ts
 import { NextResponse } from "next/server";
-// 作成したJSONデータをインポート
 import stockData from "@/data/jp_stocks.json";
 
 export async function GET(request: Request) {
@@ -14,7 +13,6 @@ export async function GET(request: Request) {
   try {
     const lowerQuery = query.toLowerCase();
 
-    // コード(symbol) または 名前(name) に入力値が含まれているものを探す
     const options = stockData.filter((stock) => {
       return (
         stock.symbol.toLowerCase().includes(lowerQuery) ||
