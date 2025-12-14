@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Paper, Typography } from "@mui/material";
+import { Box, Paper, Typography, useMediaQuery, useTheme } from "@mui/material";
 import { useMemo } from "react";
 import { ResponsiveContainer, Tooltip, Treemap } from "recharts";
 import type { PortfolioRow } from "@/types";
@@ -10,36 +10,31 @@ type Props = {
   data: PortfolioRow[];
 };
 
-// フラットカラー定義
 const COLORS = {
   gain: {
-    base: "#29524eff", // Teal 600
-    light: "#5e807cff", // Teal 300
-    dark: "#0d4237ff", // Teal 900
+    base: "#29524eff",
+    light: "#5e807cff",
+    dark: "#0d4237ff",
   },
   loss: {
-    base: "#a92e2cff", // Red 600
-    light: "#cd3939ff", // Red 300
-    dark: "#8b1b1bff", // Red 900
+    base: "#a92e2cff",
+    light: "#cd3939ff",
+    dark: "#8b1b1bff",
   },
-  neutral: "#939393ff", // Blue Grey 600
+  neutral: "#939393ff",
   text: "#f7f7f7ff",
 };
 
-// カスタムコンテンツレンダラー
 // biome-ignore lint/suspicious/noExplicitAny: Recharts Props
 const CustomContent = (props: any) => {
-  const { x, y, width, height, name, gainLossPercent, depth } = props;
+  const { x, y, width, height, name, gainLossPercent, isMobile } = props;
 
-  // 【重要】rootノード（全体枠 depth=0）は描画しない
-  if (depth < 1) return null;
+  if (props.children && props.children.length > 0) return null;
 
-  // サイズが無効または極端に小さい場合は描画しない
   if (!width || !height || width <= 0 || height <= 0) return null;
 
   const percent = gainLossPercent || 0;
 
-  // 色の決定 (フラットな単色)
   let fill = COLORS.neutral;
 
   if (percent > 0) {
@@ -52,9 +47,7 @@ const CustomContent = (props: any) => {
     else fill = COLORS.loss.light;
   }
 
-  // 表示領域が小さすぎる場合はテキストを表示しない
   const showText = width > 60 && height > 50;
-  // フォントサイズの動的調整
   const isLarge = width > 180 && height > 100;
 
   return (
@@ -66,7 +59,6 @@ const CustomContent = (props: any) => {
         height={height}
         fill={fill}
         style={{ cursor: "pointer" }}
-        // 個別のセル境界線
         stroke="#d0d0d0ff"
         strokeWidth={1}
         strokeOpacity={0.1}
@@ -99,12 +91,11 @@ const CustomContent = (props: any) => {
                 fontWeight: 400,
                 textAlign: "center",
                 lineHeight: 1.2,
-                // ▼ 複数行省略の設定
                 display: "-webkit-box",
                 WebkitBoxOrient: "vertical",
-                WebkitLineClamp: 2,
+                WebkitLineClamp: isMobile ? 1 : 2,
                 overflow: "hidden",
-                wordBreak: "break-word", // 長い単語や日本語の折り返し設定
+                wordBreak: "break-word",
               }}
             >
               {name}
@@ -128,7 +119,6 @@ const CustomContent = (props: any) => {
   );
 };
 
-// カスタムツールチップ
 const CustomTooltip = ({
   active,
   payload,
@@ -143,15 +133,15 @@ const CustomTooltip = ({
 
     return (
       <Paper
-        elevation={4} // 影をつける
+        elevation={4}
         sx={{
           width: 220,
           p: 1.5,
-          // 【修正】背景色を完全不透明に設定し、MUIのオーバーレイを無効化
           bgcolor: "#121212",
           backgroundImage: "none",
           border: "1px solid rgba(255,255,255,0.2)",
           borderRadius: 1,
+          zIndex: 9999,
         }}
       >
         <Typography
@@ -194,35 +184,49 @@ const CustomTooltip = ({
   return null;
 };
 
-// セクター境界線レンダラー
 // biome-ignore lint/suspicious/noExplicitAny: Recharts Props
 const SectorBorderContent = (props: any) => {
   const { x, y, width, height, depth } = props;
 
-  // 【重要】rootノード（全体枠）は描画しない。これで一番外側の黒枠が消えます。
-  if (depth < 1) return null;
+  if (!props.children || props.children.length === 0) {
+    return (
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        fill="transparent"
+        stroke="none"
+        style={{ cursor: "pointer" }}
+      />
+    );
+  }
 
-  if (!width || !height || width <= 0 || height <= 0) return null;
+  if (depth > 0) {
+    return (
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        fill="none"
+        stroke="#121212"
+        strokeWidth={4}
+        style={{ pointerEvents: "none" }}
+      />
+    );
+  }
 
-  return (
-    <rect
-      x={x}
-      y={y}
-      width={width}
-      height={height}
-      fill="none"
-      stroke="#121212"
-      strokeWidth={4} // セクター間の隙間
-      style={{ pointerEvents: "none" }}
-    />
-  );
+  return null;
 };
 
 export default function PortfolioChart({ data }: Props) {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+
   const treeMapData = useMemo(() => {
     if (data.length === 0) return [];
 
-    // 1. 銘柄(ticker)ごとに集計
     const grouped = data.reduce(
       (acc, curr) => {
         const key = curr.ticker;
@@ -295,25 +299,6 @@ export default function PortfolioChart({ data }: Props) {
     ];
   }, [data]);
 
-  const sectorTreeMapData = useMemo(() => {
-    if (!treeMapData || treeMapData.length === 0) return [];
-    const root = treeMapData[0];
-    if (!root.children) return [];
-
-    const sectors = root.children.map((sector) => ({
-      name: sector.name,
-      value: sector.value,
-    }));
-
-    return [
-      {
-        name: "root",
-        children: sectors,
-        value: 0,
-      },
-    ];
-  }, [treeMapData]);
-
   if (data.length === 0) return null;
 
   return (
@@ -341,14 +326,9 @@ export default function PortfolioChart({ data }: Props) {
             width: "100%",
             minHeight: 0,
             position: "relative",
-            overflow: "hidden", // 外側の境界線をクリップする
+            overflow: "hidden",
           }}
         >
-          {/*
-            【重要】外枠の黒い線を消すためのトリック
-            コンテナを少し拡大(margin: -2px)して、strokeWidth=4の半分(2px)を
-            親のoverflow: hiddenで切り落とす。
-          */}
           <Box
             sx={{
               position: "absolute",
@@ -359,21 +339,17 @@ export default function PortfolioChart({ data }: Props) {
             }}
           >
             <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-              {/* Main Treemap */}
               <Treemap
                 data={treeMapData}
                 dataKey="value"
                 aspectRatio={16 / 9}
-                stroke="none" // コンポーネント自体のstrokeは無効化
+                stroke="none"
                 fill="transparent"
-                content={<CustomContent />}
+                content={<CustomContent isMobile={isMobile} />}
                 isAnimationActive={false}
-              >
-                <Tooltip content={<CustomTooltip />} cursor={false} />
-              </Treemap>
+              />
             </ResponsiveContainer>
 
-            {/* Sector Border Overlay */}
             <Box
               sx={{
                 position: "absolute",
@@ -381,19 +357,20 @@ export default function PortfolioChart({ data }: Props) {
                 left: 0,
                 right: 0,
                 bottom: 0,
-                pointerEvents: "none",
               }}
             >
               <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                 <Treemap
-                  data={sectorTreeMapData}
+                  data={treeMapData}
                   dataKey="value"
                   aspectRatio={16 / 9}
                   stroke="none"
                   fill="transparent"
                   content={<SectorBorderContent />}
                   isAnimationActive={false}
-                />
+                >
+                  <Tooltip content={<CustomTooltip />} cursor={false} />
+                </Treemap>
               </ResponsiveContainer>
             </Box>
           </Box>
