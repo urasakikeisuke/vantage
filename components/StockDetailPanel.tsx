@@ -316,7 +316,7 @@ export default function StockDetailPanel({ ticker }: Props) {
                   tick={{ fill: "#666", fontSize: 9 }}
                   tickMargin={10}
                   minTickGap={30}
-                  tickFormatter={(str) => {
+                  tickFormatter={(str: string) => {
                     const d = new Date(str);
                     return range === "5y"
                       ? `${d.getFullYear()}`
@@ -328,13 +328,13 @@ export default function StockDetailPanel({ ticker }: Props) {
                 <YAxis
                   domain={["auto", "auto"]}
                   tick={{ fill: "#666", fontSize: 9 }}
-                  tickFormatter={(val) => `¥${val.toLocaleString()}`}
+                  tickFormatter={(val: number) => `¥${val.toLocaleString()}`}
                   stroke="#444"
                   width={isMobile ? 45 : 60}
                 />
 
                 <RechartsTooltip
-                  labelFormatter={(v) => v}
+                  labelFormatter={(v: string) => v}
                   contentStyle={{
                     backgroundColor: "rgba(18,18,18,0.95)",
                     borderColor: "#333",

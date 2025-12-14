@@ -94,7 +94,7 @@ export default function AssetHistoryChart({ data }: Props) {
                 dataKey="date"
                 tick={{ fill: "#666", fontSize: 11 }}
                 stroke="#444"
-                tickFormatter={(str) => {
+                tickFormatter={(str: string) => {
                   const d = new Date(str);
                   return `${d.getMonth() + 1}/${d.getDate()}`;
                 }}
@@ -102,11 +102,10 @@ export default function AssetHistoryChart({ data }: Props) {
               />
 
               <YAxis
-                // 修正: 'auto' にして変動を見やすくする
                 domain={["auto", "auto"]}
                 tick={{ fill: "#666", fontSize: 11 }}
                 stroke="#444"
-                tickFormatter={(value) =>
+                tickFormatter={(value: number) =>
                   value >= 1000000
                     ? `${(value / 10000).toLocaleString()}万`
                     : value.toLocaleString()
@@ -121,8 +120,8 @@ export default function AssetHistoryChart({ data }: Props) {
                   borderRadius: "8px",
                   boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
                 }}
-                labelFormatter={(label) => label}
-                formatter={(value: number, name: string, _) => {
+                labelFormatter={(label: string) => label}
+                formatter={(value: number, name: string) => {
                   if (name === "total_value")
                     return [`¥${value.toLocaleString()}`, "総資産"];
                   if (name === "total_investment")
