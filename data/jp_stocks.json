@@ -1,19 +1,19 @@
 [
   {
     "symbol": "03311187",
-    "name": "eMAXIS Slim 米国株式(S&P500)",
+    "name": "eMAXIS Slim S&P500",
     "type": "MUTUALFUND",
     "exch": "投信"
   },
   {
     "symbol": "0331418A",
-    "name": "eMAXIS Slim 全世界株式(オール・カントリー)",
+    "name": "eMAXIS Slim オール・カントリー",
     "type": "MUTUALFUND",
     "exch": "投信"
   },
   {
     "symbol": "0431Q179",
-    "name": "楽天・全米株式インデックス・ファンド(楽天VTI)",
+    "name": "楽天VTI",
     "type": "MUTUALFUND",
     "exch": "投信"
   },
@@ -145,7 +145,7 @@
   },
   {
     "symbol": "9432.T",
-    "name": "日本電信電話 (NTT)",
+    "name": "NTT",
     "type": "EQUITY",
     "exch": "東証"
   },

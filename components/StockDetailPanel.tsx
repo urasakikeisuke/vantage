@@ -15,7 +15,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -26,7 +26,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { StockDetailData } from "@/types";
+import useSWR from "swr"; // 追加
+import { api } from "@/lib/api"; // 追加
 
 type Props = {
   ticker: string;
@@ -36,6 +37,7 @@ type Range = "5y" | "1y" | "6m" | "3m";
 
 type ChartDataPoint = {
   close: number;
+  // biome-ignore lint/suspicious/noExplicitAny: Ignore
   [key: string]: any;
 };
 
@@ -50,7 +52,7 @@ const calculateSMA = (data: ChartDataPoint[], window: number) => {
     // 有効な数値データだけを抽出
     const validValues = slice
       .map((d) => d.close)
-      .filter((v) => typeof v === "number" && !isNaN(v));
+      .filter((v) => typeof v === "number" && !Number.isNaN(v));
 
     if (validValues.length === 0) return { ...entry, [`sma${window}`]: null };
 
@@ -68,33 +70,21 @@ const formatLargeNumber = (num: number | null) => {
 };
 
 export default function StockDetailPanel({ ticker }: Props) {
-  const [data, setData] = useState<StockDetailData | null>(null);
-  const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<Range>("1y");
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const res = await fetch(
-          `/api/stock-detail?symbol=${ticker}&range=${range}`,
-        );
-        const json = await res.json();
-        if (json.history) setData(json);
-      } catch (error) {
-        console.error(error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-  }, [ticker, range]);
+  const { data, isLoading: loading } = useSWR(
+    ["stockDetail", ticker, range],
+    ([_, s, r]) => api.fetchStockDetail(s, r),
+    {
+      revalidateOnFocus: false,
+    },
+  );
 
   const handleRangeChange = (
-    event: React.MouseEvent<HTMLElement>,
+    _event: React.MouseEvent<HTMLElement>,
     newRange: Range | null,
   ) => {
     if (newRange !== null) {

@@ -38,6 +38,15 @@ type Props = {
   onDelete: (item: PortfolioRow) => void;
 };
 
+type RowMenuProps = {
+  anchorEl: HTMLElement | null;
+  menuTargetItem: PortfolioRow | null;
+  handleMenuClose: () => void;
+  onBuyMore: (item: PortfolioRow) => void;
+  onEdit: (item: PortfolioRow) => void;
+  onDelete: (item: PortfolioRow) => void;
+};
+
 // 口座バッジ
 const AccountBadge = ({ type }: { type: string }) => {
   const badgeProps = {
@@ -50,7 +59,11 @@ const AccountBadge = ({ type }: { type: string }) => {
       <Chip
         label="NISA成長"
         {...badgeProps}
-        sx={{ ...badgeProps.sx, borderColor: "#BA68C8", color: "#BA68C8" }}
+        sx={{
+          ...badgeProps.sx,
+          borderColor: "custom.nisaGrowth",
+          color: "custom.nisaGrowth",
+        }}
       />
     );
   if (type === "nisa_tsumitate")
@@ -58,7 +71,11 @@ const AccountBadge = ({ type }: { type: string }) => {
       <Chip
         label="NISA積立"
         {...badgeProps}
-        sx={{ ...badgeProps.sx, borderColor: "#29B6F6", color: "#29B6F6" }}
+        sx={{
+          ...badgeProps.sx,
+          borderColor: "custom.nisaTsumitate",
+          color: "custom.nisaTsumitate",
+        }}
       />
     );
   if (type === "specific")
@@ -66,14 +83,22 @@ const AccountBadge = ({ type }: { type: string }) => {
       <Chip
         label="特定"
         {...badgeProps}
-        sx={{ ...badgeProps.sx, borderColor: "#2979FF", color: "#2979FF" }}
+        sx={{
+          ...badgeProps.sx,
+          borderColor: "custom.specific",
+          color: "custom.specific",
+        }}
       />
     );
   return (
     <Chip
       label="一般"
       {...badgeProps}
-      sx={{ ...badgeProps.sx, borderColor: "#607D8B", color: "#607D8B" }}
+      sx={{
+        ...badgeProps.sx,
+        borderColor: "custom.general",
+        color: "custom.general",
+      }}
     />
   );
 };
@@ -97,6 +122,42 @@ const useRowMenu = () => {
     setMenuTargetItem(null);
   };
   return { anchorEl, menuTargetItem, handleMenuOpen, handleMenuClose };
+};
+
+const GainLossDisplay = ({
+  gainLoss,
+  afterTaxGain,
+  gainLossPercent,
+  mode = "desktop",
+}: {
+  gainLoss: number;
+  afterTaxGain: number;
+  gainLossPercent: number;
+  mode?: "desktop" | "mobile";
+}) => {
+  const isPositive = gainLoss >= 0;
+  const color = isPositive ? "success" : "error";
+  const label = `¥${Math.round(afterTaxGain).toLocaleString()} (${gainLossPercent.toFixed(1)}%)`;
+
+  if (mode === "desktop") {
+    return <Chip label={label} color={color} variant="outlined" size="small" />;
+  }
+
+  return (
+    <Box
+      mt={1}
+      p={0.5}
+      bgcolor={isPositive ? "rgba(0, 200, 83, 0.1)" : "rgba(255, 23, 68, 0.1)"}
+      borderRadius={1}
+      display="flex"
+      justifyContent="center"
+    >
+      <Typography variant="body2" fontWeight="bold" color={`${color}.main`}>
+        {isPositive ? "+" : ""}
+        {label}
+      </Typography>
+    </Box>
+  );
 };
 
 // --- PC用: テーブル行 ---
@@ -194,11 +255,11 @@ function DesktopRow({
           </Box>
         </TableCell>
         <TableCell align="right" width="20%">
-          <Chip
-            label={`¥${Math.round(row.totalAfterTaxGain).toLocaleString()} (${row.totalGainLossPercent.toFixed(1)}%)`}
-            color={row.totalGainLoss >= 0 ? "success" : "error"}
-            variant="outlined"
-            size="small"
+          <GainLossDisplay
+            gainLoss={row.totalGainLoss}
+            afterTaxGain={row.totalAfterTaxGain}
+            gainLossPercent={row.totalGainLossPercent}
+            mode="desktop"
           />
         </TableCell>
       </TableRow>
@@ -212,8 +273,10 @@ function DesktopRow({
                 margin: 2,
                 pl: 2,
                 // スタイリッシュな左線
-                borderLeft: "4px solid #00E5FF",
-                boxShadow: "-4px 0 8px -4px rgba(0, 229, 255, 0.3)",
+                borderLeft: "4px solid",
+                borderLeftColor: "custom.accent",
+                boxShadow: (theme) =>
+                  `-4px 0 8px -4px ${theme.palette.custom.accent}4D`, // 4D = 30% alpha
               }}
             >
               {isStock && <StockDetailPanel ticker={row.ticker} />}
@@ -399,28 +462,12 @@ function MobileCard({
         </Box>
 
         {/* 損益バー */}
-        <Box
-          mt={1}
-          p={0.5}
-          bgcolor={
-            row.totalGainLoss >= 0
-              ? "rgba(0, 200, 83, 0.1)"
-              : "rgba(255, 23, 68, 0.1)"
-          }
-          borderRadius={1}
-          display="flex"
-          justifyContent="center"
-        >
-          <Typography
-            variant="body2"
-            fontWeight="bold"
-            color={row.totalGainLoss >= 0 ? "success.main" : "error.main"}
-          >
-            {row.totalGainLoss >= 0 ? "+" : ""}¥
-            {Math.round(row.totalAfterTaxGain).toLocaleString()} (
-            {row.totalGainLossPercent.toFixed(1)}%)
-          </Typography>
-        </Box>
+        <GainLossDisplay
+          gainLoss={row.totalGainLoss}
+          afterTaxGain={row.totalAfterTaxGain}
+          gainLossPercent={row.totalGainLossPercent}
+          mode="mobile"
+        />
       </Box>
 
       {/* 展開部分 */}
@@ -432,7 +479,8 @@ function MobileCard({
             borderColor: "divider",
             bgcolor: "rgba(255,255,255,0.02)",
             // スタイリッシュな左線 (スマホ版)
-            borderLeft: "4px solid #00E5FF",
+            borderLeft: "4px solid",
+            borderLeftColor: "custom.accent",
           }}
         >
           {isStock && <StockDetailPanel ticker={row.ticker} />}
@@ -516,7 +564,6 @@ function MobileCard({
 }
 
 // 共通メニュー
-// biome-ignore lint/suspicious/noExplicitAny: propsが多いため
 function RowMenu({
   anchorEl,
   menuTargetItem,
@@ -524,7 +571,7 @@ function RowMenu({
   onBuyMore,
   onEdit,
   onDelete,
-}: any) {
+}: RowMenuProps) {
   return (
     <Menu
       anchorEl={anchorEl}

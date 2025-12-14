@@ -1,28 +1,114 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
+import useSWR from "swr";
+import { api } from "@/lib/api";
+import { DEFAULT_USDJPY, SYMBOL_USDJPY } from "@/lib/constants";
 import { logOperation } from "@/lib/logger";
 import { createClient } from "@/lib/supabase/client";
-import type {
-  GroupedPortfolio,
-  HistoryData,
-  PortfolioRow,
-  StockPrice,
-} from "@/types";
+import type { GroupedPortfolio, PortfolioItem, PortfolioRow } from "@/types";
+import { calculatePortfolioItem } from "@/utils/calculator";
+
+// SWRのキー
+const KEY_PORTFOLIO = "portfolioData";
+const KEY_HISTORY = "historyData";
 
 export const usePortfolio = () => {
-  const [rows, setRows] = useState<PortfolioRow[]>([]);
-  const [historyData, setHistoryData] = useState<HistoryData[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [totalValue, setTotalValue] = useState(0);
-  const [totalInvestment, setTotalInvestment] = useState(0);
-  const [totalStockInvestment, setTotalStockInvestment] = useState(0);
-  const [totalDividend, setTotalDividend] = useState(0);
-  const [exchangeRate, setExchangeRate] = useState<number | null>(null);
-
   const supabase = createClient();
 
-  // 履歴記録
+  // --- Data Fetchers ---
+
+  const fetchPortfolioData = async () => {
+    const { data: portfolios, error } = await supabase
+      .from("portfolios")
+      .select("*")
+      .order("created_at", { ascending: true });
+
+    if (error || !portfolios) throw error;
+
+    if (portfolios.length === 0) {
+      return {
+        rows: [],
+        totalValue: 0,
+        totalInvestment: 0,
+        totalStockInvestment: 0,
+        totalDividend: 0,
+        exchangeRate: null,
+      };
+    }
+
+    const symbols = `${portfolios.map((p) => p.ticker).join(",")},${SYMBOL_USDJPY}`;
+    const prices = await api.fetchStockPrices(symbols);
+
+    const pricesMap = new Map(prices.map((p) => [p.symbol, p]));
+    const usdjpy = pricesMap.get(SYMBOL_USDJPY)?.price || DEFAULT_USDJPY;
+
+    let sumValue = 0;
+    let sumInvestment = 0;
+    let sumStockInv = 0;
+    let sumDividend = 0;
+
+    const combinedData = portfolios.map((p) => {
+      const priceData = pricesMap.get(p.ticker);
+      const row = calculatePortfolioItem(p as PortfolioItem, priceData, usdjpy);
+
+      if (row.type !== "MUTUALFUND") sumStockInv += row.investmentValue;
+
+      sumValue += row.currentValue;
+      sumInvestment += row.investmentValue;
+      sumDividend += row.annualDividend;
+
+      return row;
+    });
+
+    return {
+      rows: combinedData,
+      totalValue: Math.round(sumValue),
+      totalInvestment: Math.round(sumInvestment),
+      totalStockInvestment: Math.round(sumStockInv),
+      totalDividend: Math.round(sumDividend),
+      exchangeRate: usdjpy,
+    };
+  };
+
+  const fetchHistoryData = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data } = await supabase
+      .from("asset_history")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("date", { ascending: true });
+
+    return data || [];
+  };
+
+  // --- SWR Hooks ---
+
+  const {
+    data: portfolioData,
+    // error: portfolioError,
+    isLoading: portfolioLoading,
+    mutate: mutatePortfolio,
+  } = useSWR(KEY_PORTFOLIO, fetchPortfolioData, {
+    revalidateOnFocus: false,
+    refreshInterval: 0, // 自動更新はしない（API制限考慮）
+  });
+
+  const { data: historyData, mutate: mutateHistory } = useSWR(
+    KEY_HISTORY,
+    fetchHistoryData,
+    {
+      revalidateOnFocus: false,
+    },
+  );
+
+  // --- Actions ---
+
+  // 履歴記録 (Upsert回避: Select -> Insert/Update)
   const recordHistory = useCallback(
     async (totalVal: number, totalInv: number) => {
       if (totalVal === 0) return;
@@ -32,150 +118,44 @@ export const usePortfolio = () => {
       if (!user) return;
 
       const today = new Date().toISOString().split("T")[0];
-      const { data: existing } = await supabase
-        .from("asset_history")
-        .select("*")
-        .eq("user_id", user.id)
-        .eq("date", today)
-        .single();
 
-      if (existing) {
-        await supabase
-          .from("asset_history")
-          .update({ total_value: totalVal, total_investment: totalInv })
-          .eq("id", existing.id);
-      } else {
-        await supabase.from("asset_history").insert({
-          user_id: user.id,
-          date: today,
-          total_value: totalVal,
-          total_investment: totalInv,
-        });
-      }
-    },
-    [supabase],
-  );
-
-  // 履歴取得
-  const fetchHistory = useCallback(async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { data } = await supabase
-      .from("asset_history")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("date", { ascending: true });
-
-    if (data) setHistoryData(data);
-  }, [supabase]);
-
-  // データ取得メイン
-  const fetchPortfolioData = useCallback(
-    async (isRefresh = false) => {
       try {
-        if (!isRefresh) setLoading(true);
+        // 1. 既存データの確認
+        const { data: existing, error: selectError } = await supabase
+          .from("asset_history")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("date", today)
+          .maybeSingle();
 
-        const { data: portfolios, error } = await supabase
-          .from("portfolios")
-          .select("*")
-          .order("created_at", { ascending: true });
+        if (selectError) throw selectError;
 
-        if (error || !portfolios) throw error;
-
-        if (portfolios.length === 0) {
-          setRows([]);
-          setTotalValue(0);
-          setTotalInvestment(0);
-          setTotalStockInvestment(0);
-          setTotalDividend(0);
-          setLoading(false);
-          return;
+        if (existing) {
+          // 2. 更新
+          const { error: updateError } = await supabase
+            .from("asset_history")
+            .update({ total_value: totalVal, total_investment: totalInv })
+            .eq("id", existing.id);
+          if (updateError) throw updateError;
+        } else {
+          // 3. 新規作成
+          const { error: insertError } = await supabase
+            .from("asset_history")
+            .insert({
+              user_id: user.id,
+              date: today,
+              total_value: totalVal,
+              total_investment: totalInv,
+            });
+          if (insertError) throw insertError;
         }
-
-        const symbols = `${portfolios.map((p) => p.ticker).join(",")},USDJPY=X`;
-        const res = await fetch(`/api/stocks?symbols=${symbols}`);
-        const prices: StockPrice[] = await res.json();
-
-        const usdjpy =
-          prices.find((p) => p.symbol === "USDJPY=X")?.price || 150;
-        setExchangeRate(usdjpy);
-
-        let sumValue = 0;
-        let sumInvestment = 0;
-        let sumStockInv = 0;
-        let sumDividend = 0;
-
-        const combinedData = portfolios.map((p) => {
-          const priceData = prices.find((price) => price.symbol === p.ticker);
-          const currency = priceData?.currency || "JPY";
-          const rawPrice = priceData?.price || 0;
-          const rate = currency === "USD" ? usdjpy : 1;
-          const type = priceData?.type || "EQUITY";
-
-          const currentPriceInYen = rawPrice * rate;
-          let currentValue = 0;
-          let investmentInYen = 0;
-
-          if (type === "MUTUALFUND") {
-            currentValue = (currentPriceInYen * p.shares) / 10000;
-            investmentInYen = (p.acquisition_price * rate * p.shares) / 10000;
-          } else {
-            currentValue = currentPriceInYen * p.shares;
-            investmentInYen = p.acquisition_price * rate * p.shares;
-          }
-
-          if (type !== "MUTUALFUND") sumStockInv += investmentInYen;
-
-          const dividendRaw = priceData?.dividendRate || 0;
-          const annualDividend =
-            type === "MUTUALFUND"
-              ? (dividendRaw * rate * p.shares) / 10000
-              : dividendRaw * rate * p.shares;
-
-          const gainLoss = currentValue - investmentInYen;
-          const isNisa = p.account_type?.includes("nisa");
-          let afterTaxGain = gainLoss;
-          if (!isNisa && gainLoss > 0) afterTaxGain = gainLoss * (1 - 0.20315);
-
-          sumValue += currentValue;
-          sumInvestment += investmentInYen;
-          sumDividend += annualDividend;
-
-          return {
-            ...p,
-            currency,
-            originalPrice: rawPrice,
-            currentPrice: currentPriceInYen,
-            currentValue,
-            investmentValue: investmentInYen,
-            gainLoss,
-            gainLossPercent:
-              investmentInYen !== 0 ? (gainLoss / investmentInYen) * 100 : 0,
-            name: priceData?.shortName || p.ticker,
-            annualDividend,
-            afterTaxGain,
-            type,
-          } as PortfolioRow;
-        });
-
-        setRows(combinedData);
-        setTotalValue(Math.round(sumValue));
-        setTotalInvestment(Math.round(sumInvestment));
-        setTotalStockInvestment(Math.round(sumStockInv));
-        setTotalDividend(Math.round(sumDividend));
-
-        await recordHistory(sumValue, sumInvestment);
-        await fetchHistory();
+        // 履歴データを再取得
+        mutateHistory();
       } catch (error) {
-        console.error("Error loading data:", error);
-      } finally {
-        setLoading(false);
+        console.error("History record error:", error);
       }
     },
-    [recordHistory, fetchHistory, supabase],
+    [supabase, mutateHistory],
   );
 
   // 削除処理
@@ -204,14 +184,37 @@ export const usePortfolio = () => {
     if (error) {
       alert(`削除に失敗しました: ${error.message}`);
     } else {
-      fetchPortfolioData();
+      mutatePortfolio();
     }
   };
 
+  // 手動更新用ラッパー
+  const refreshAll = async (_isRefresh = false) => {
+    // isRefreshがtrueならキャッシュを破棄して再取得（SWRのmutateを使用）
+    await mutatePortfolio();
+    await mutateHistory();
+  };
+
+  // --- Effects ---
+
+  // データロード完了後に履歴を記録 (1日1回相当)
+  useEffect(() => {
+    if (!portfolioLoading && portfolioData && portfolioData.totalValue > 0) {
+      // 少し遅延させて実行（UI描画優先）
+      const timer = setTimeout(() => {
+        recordHistory(portfolioData.totalValue, portfolioData.totalInvestment);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [portfolioLoading, portfolioData, recordHistory]);
+
+  // --- Grouping Logic (Memoized) ---
   const groupedRows: GroupedPortfolio[] = useMemo(() => {
+    if (!portfolioData?.rows) return [];
+
     const groups = new Map<string, GroupedPortfolio>();
 
-    rows.forEach((row) => {
+    portfolioData.rows.forEach((row) => {
       const existing = groups.get(row.ticker);
       if (existing) {
         existing.totalShares += Number(row.shares);
@@ -242,8 +245,6 @@ export const usePortfolio = () => {
     });
 
     return Array.from(groups.values()).map((g) => {
-      // 平均取得単価 = 総投資額 / (総保有数 * 為替レート(概算))
-      // 正確には (各行の取得単価 * 株数) の合計 / 総株数
       const totalAcqRaw = g.items.reduce(
         (sum, item) => sum + item.acquisition_price * item.shares,
         0,
@@ -257,23 +258,19 @@ export const usePortfolio = () => {
 
       return g;
     });
-  }, [rows]);
-
-  useEffect(() => {
-    fetchPortfolioData();
-  }, [fetchPortfolioData]);
+  }, [portfolioData]);
 
   return {
-    rows,
+    rows: portfolioData?.rows || [],
     groupedRows,
-    historyData,
-    loading,
-    totalValue,
-    totalInvestment,
-    totalStockInvestment,
-    totalDividend,
-    exchangeRate,
-    fetchPortfolioData,
+    historyData: historyData || [],
+    loading: portfolioLoading,
+    totalValue: portfolioData?.totalValue || 0,
+    totalInvestment: portfolioData?.totalInvestment || 0,
+    totalStockInvestment: portfolioData?.totalStockInvestment || 0,
+    totalDividend: portfolioData?.totalDividend || 0,
+    exchangeRate: portfolioData?.exchangeRate || null,
+    fetchPortfolioData: refreshAll, // インターフェース互換性のため名前維持
     deleteAsset,
   };
 };

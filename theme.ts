@@ -11,6 +11,28 @@ const roboto = Roboto({
   display: "swap",
 });
 
+// カスタムパレットの型定義拡張
+declare module "@mui/material/styles" {
+  interface Palette {
+    custom: {
+      nisaGrowth: string;
+      nisaTsumitate: string;
+      specific: string;
+      general: string;
+      accent: string;
+    };
+  }
+  interface PaletteOptions {
+    custom?: {
+      nisaGrowth?: string;
+      nisaTsumitate?: string;
+      specific?: string;
+      general?: string;
+      accent?: string;
+    };
+  }
+}
+
 const theme = createTheme({
   // カラーパレット設定
   palette: {
@@ -25,12 +47,13 @@ const theme = createTheme({
       default: "#0a1929", // 非常に濃い紺色（金融アプリっぽい背景）
       paper: "#132f4c", // カードなどの背景色
     },
-    // 株価用のカスタムカラー（後で使います）
-    success: {
-      main: "#4caf50", // 上昇（緑）
-    },
-    error: {
-      main: "#f44336", // 下落（赤）
+    // カスタムカラー
+    custom: {
+      nisaGrowth: "#BA68C8",
+      nisaTsumitate: "#29B6F6",
+      specific: "#2979FF",
+      general: "#607D8B",
+      accent: "#00E5FF",
     },
   },
   // フォント設定

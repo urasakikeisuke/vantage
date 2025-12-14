@@ -27,7 +27,6 @@ export async function GET(request: Request) {
       case "3m":
         startDate.setMonth(endDate.getMonth() - 3);
         break;
-      case "1y":
       default:
         startDate.setFullYear(endDate.getFullYear() - 1);
         break;
@@ -63,9 +62,7 @@ export async function GET(request: Request) {
       // biome-ignore lint/suspicious/noExplicitAny: 戻り値の型推論回避のため
       history: history.map((h: any) => ({
         date:
-          h.date instanceof Date
-            ? h.date.toISOString().split("T")[0]
-            : h.date,
+          h.date instanceof Date ? h.date.toISOString().split("T")[0] : h.date,
         close: h.close,
       })),
       details: {

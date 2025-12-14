@@ -41,12 +41,16 @@ async function fetchJapanFund(code: string): Promise<StockPrice | null> {
     }
 
     if (!price) {
-      console.warn(`Price not found for ${code}`);
+      console.warn(`Price not found for ${code}. HTML length: ${html.length}`);
+      // ここでフォールバックロジックを入れる余地があるが、
+      // 現状はnullを返して呼び出し元で処理する（あるいはDBの前回値を参照するなど）
       return null;
     }
 
     let name = "投資信託";
-    const masterInfo = stockData.find((s: any) => s.symbol === code);
+    const masterInfo = (stockData as { symbol: string; name: string }[]).find(
+      (s) => s.symbol === code,
+    );
     if (masterInfo) {
       name = masterInfo.name;
     }
@@ -69,7 +73,19 @@ async function fetchJapanFund(code: string): Promise<StockPrice | null> {
   }
 }
 
+import { createClient } from "@/lib/supabase/server";
+
 export async function GET(request: Request) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error || !user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const symbolsParam = searchParams.get("symbols");
 
@@ -104,7 +120,7 @@ export async function GET(request: Request) {
             try {
               // biome-ignore lint/suspicious/noExplicitAny: ライブラリ型不備対応
               const summary = await (yf as any).quoteSummary(symbol, {
-                modules: ["summaryProfile", "quoteType"]
+                modules: ["summaryProfile", "quoteType"],
               });
               if (summary.summaryProfile?.sector) {
                 sector = summary.summaryProfile.sector;
@@ -118,7 +134,9 @@ export async function GET(request: Request) {
           }
 
           let stockName = quote.longName || quote.shortName || symbol;
-          const masterInfo = stockData.find((s: any) => s.symbol === symbol);
+          const masterInfo = (
+            stockData as { symbol: string; name: string }[]
+          ).find((s) => s.symbol === symbol);
           if (masterInfo) {
             stockName = masterInfo.name;
           }
@@ -136,7 +154,6 @@ export async function GET(request: Request) {
             quoteType: quoteType,
             sector: sector,
           } as StockPrice;
-
         } catch (e) {
           console.error(`Error fetching ${symbol}:`, e);
           return null;
