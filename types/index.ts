@@ -1,3 +1,5 @@
+// types/index.ts
+
 export type PortfolioItem = {
   id: string;
   ticker: string;
@@ -16,9 +18,9 @@ export type StockPrice = {
   shortName: string;
   dividendRate: number;
   type?: string;
-  marketCap?: number;
-  peRatio?: number;
-  pbRatio?: number;
+  // 以下追加
+  sector?: string;
+  quoteType?: string;
 };
 
 export type PortfolioRow = PortfolioItem & {
@@ -33,6 +35,9 @@ export type PortfolioRow = PortfolioItem & {
   annualDividend: number;
   afterTaxGain: number;
   type?: string;
+  // 以下追加
+  sector?: string;
+  quoteType?: string;
 };
 
 export type HistoryData = {
@@ -69,9 +74,9 @@ export type StockDetailData = {
     per: number | null;
     pbr: number | null;
     dividendYield: number | null;
-    marketCap: number | null; // 時価総額
-    eps: number | null; // EPS
-    profitMargin: number | null; // 純利益率
-    beta: number | null; // ベータ値
+    marketCap: number | null;
+    eps: number | null;
+    profitMargin: number | null;
+    beta: number | null;
   };
 };

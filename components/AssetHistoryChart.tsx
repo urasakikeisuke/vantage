@@ -1,182 +1,150 @@
-// components/AssetHistoryChart.tsx
 "use client";
 
-import ShowChartIcon from "@mui/icons-material/ShowChart";
-import { Box, Card, CardContent, Typography } from "@mui/material";
+import { Box, Paper, Typography } from "@mui/material";
 import {
   Area,
   AreaChart,
   CartesianGrid,
-  Legend,
+  Line,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
-
-type HistoryData = {
-  date: string;
-  total_value: number;
-  total_investment: number;
-};
+import type { HistoryData } from "@/types";
 
 type Props = {
   data: HistoryData[];
 };
 
 export default function AssetHistoryChart({ data }: Props) {
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return `${date.getMonth() + 1}/${date.getDate()}`;
-  };
+  if (data.length === 0) return null;
 
   return (
-    <Card
+    <Paper
+      elevation={3}
       sx={{
-        height: "100%",
+        p: 3,
+        mb: 4,
         bgcolor: "background.paper",
         borderRadius: 2,
-        mb: 4,
+        height: 350,
+        display: "flex",
+        flexDirection: "column",
       }}
     >
-      <CardContent sx={{ py: 2, px: 2, "&:last-child": { pb: 2 } }}>
-        <Box display="flex" alignItems="center" mb={2}>
-          <ShowChartIcon color="primary" sx={{ mr: 1, fontSize: 20 }} />
-          <Typography color="text.secondary" variant="body2">
-            資産推移
-          </Typography>
+      <Box
+        display="flex"
+        justifyContent="space-between"
+        alignItems="center"
+        mb={1}
+      >
+        <Typography variant="h6" fontWeight="bold">
+          資産推移
+        </Typography>
+        <Box display="flex" gap={2}>
+          <Box display="flex" alignItems="center" gap={1}>
+            <Box width={12} height={12} bgcolor="#D500F9" borderRadius="2px" />
+            <Typography variant="caption" color="text.secondary">
+              総資産
+            </Typography>
+          </Box>
+          <Box display="flex" alignItems="center" gap={1}>
+            <Box width={12} height={2} bgcolor="#888" />
+            <Typography variant="caption" color="text.secondary">
+              元本
+            </Typography>
+          </Box>
         </Box>
+      </Box>
 
-        <Box sx={{ width: "100%", height: 300 }}>
-          {data.length > 0 ? (
-            <ResponsiveContainer>
-              <AreaChart
-                data={data}
-                margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
-              >
-                <defs>
-                  <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#D500F9" stopOpacity={0.6} />
-                    <stop offset="95%" stopColor="#D500F9" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="colorInvest" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#00E5FF" stopOpacity={0.6} />
-                    <stop offset="95%" stopColor="#00E5FF" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
+      <Box
+        sx={{ flexGrow: 1, width: "100%", minHeight: 0, position: "relative" }}
+      >
+        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+          <AreaChart
+            data={data}
+            margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+          >
+            <defs>
+              <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#D500F9" stopOpacity={0.4} />
+                <stop offset="95%" stopColor="#D500F9" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid
+              strokeDasharray="3 3"
+              stroke="#333"
+              vertical={false}
+            />
 
-                <XAxis
-                  dataKey="date"
-                  tickFormatter={formatDate}
-                  stroke="#666" // 軸の文字色 (ダークモードでも見やすいグレー)
-                  fontSize={10}
-                  tickMargin={10}
-                  axisLine={false}
-                  tickLine={false}
-                />
+            <XAxis
+              dataKey="date"
+              tick={{ fill: "#666", fontSize: 11 }}
+              stroke="#444"
+              tickFormatter={(str) => {
+                const d = new Date(str);
+                return `${d.getMonth() + 1}/${d.getDate()}`;
+              }}
+              minTickGap={30}
+            />
 
-                <YAxis
-                  stroke="#666"
-                  fontSize={10}
-                  tickFormatter={(val) => `${(val / 10000).toFixed(0)}万`}
-                  width={35}
-                  axisLine={false}
-                  tickLine={false}
-                />
+            <YAxis
+              // 修正: 'auto' にして変動を見やすくする
+              domain={["auto", "auto"]}
+              tick={{ fill: "#666", fontSize: 11 }}
+              stroke="#444"
+              tickFormatter={(value) =>
+                value >= 1000000
+                  ? `${(value / 10000).toLocaleString()}万`
+                  : value.toLocaleString()
+              }
+              width={50}
+            />
 
-                {/* 修正: グリッド線を薄い白に変更してダークモードに対応 */}
-                <CartesianGrid
-                  vertical={false}
-                  stroke="rgba(255, 255, 255, 0.1)"
-                />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: "rgba(18,18,18,0.95)",
+                borderColor: "#333",
+                borderRadius: "8px",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+              }}
+              labelFormatter={(label) => label}
+              formatter={(value: number, name: string, props: any) => {
+                if (name === "total_value")
+                  return [`¥${value.toLocaleString()}`, "総資産"];
+                if (name === "total_investment")
+                  return [`¥${value.toLocaleString()}`, "元本"];
+                return [value, name];
+              }}
+            />
 
-                <Tooltip
-                  labelFormatter={(label) =>
-                    new Date(label).toLocaleDateString()
-                  }
-                  formatter={(value: number, name: string) => [
-                    `¥${Math.round(value).toLocaleString()}`,
-                    name === "total_value" ? "評価額" : "投資元本",
-                  ]}
-                  // 修正: ツールチップをダークモード仕様に変更
-                  contentStyle={{
-                    backgroundColor: "rgba(30, 30, 30, 0.9)", // 濃い黒背景
-                    borderRadius: "8px",
-                    boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
-                    border: "1px solid rgba(255, 255, 255, 0.1)", // 薄い枠線
-                    fontSize: "12px",
-                    color: "#fff", // 文字色を白に
-                  }}
-                  // リストアイテムのスタイル
-                  itemStyle={{ color: "#fff", padding: 0 }}
-                  // ラベルのスタイル
-                  labelStyle={{ color: "#ccc", marginBottom: "5px" }}
-                />
+            {/* 元本ライン (点線) */}
+            <Line
+              type="monotone"
+              dataKey="total_investment"
+              stroke="#888"
+              strokeWidth={1}
+              strokeDasharray="4 4"
+              dot={false}
+              activeDot={false}
+              name="total_investment"
+            />
 
-                <Legend
-                  // 凡例の文字色を少し明るく調整
-                  formatter={(value) => (
-                    <span
-                      style={{
-                        color: "#aaa",
-                        fontSize: "11px",
-                        fontWeight: "bold",
-                      }}
-                    >
-                      {value === "total_value" ? "評価額" : "投資元本"}
-                    </span>
-                  )}
-                  iconType="circle"
-                  iconSize={8}
-                  verticalAlign="top"
-                  align="right"
-                  wrapperStyle={{ paddingBottom: "10px" }}
-                />
-
-                <Area
-                  type="monotone"
-                  dataKey="total_value"
-                  stroke="#D500F9"
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#colorValue)"
-                  name="total_value"
-                  animationDuration={1500}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="total_investment"
-                  stroke="#00E5FF"
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#colorInvest)"
-                  name="total_investment"
-                  animationDuration={1500}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          ) : (
-            <Box
-              display="flex"
-              alignItems="center"
-              justifyContent="center"
-              height="100%"
-              flexDirection="column"
-            >
-              <Typography variant="body2" color="text.secondary">
-                データ収集中...
-              </Typography>
-              <Typography
-                variant="caption"
-                color="text.disabled"
-                sx={{ mt: 1 }}
-              >
-                明日以降、推移グラフが表示されます
-              </Typography>
-            </Box>
-          )}
-        </Box>
-      </CardContent>
-    </Card>
+            {/* 総資産エリア */}
+            <Area
+              type="monotone"
+              dataKey="total_value"
+              stroke="#D500F9"
+              strokeWidth={2}
+              fillOpacity={1}
+              fill="url(#colorValue)"
+              name="total_value"
+              activeDot={{ r: 4, fill: "#fff", stroke: "#D500F9" }}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </Box>
+    </Paper>
   );
 }

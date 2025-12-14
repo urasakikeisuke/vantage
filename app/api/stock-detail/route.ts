@@ -1,7 +1,7 @@
-// app/api/stock-detail/route.ts
 import { NextResponse } from "next/server";
 import YahooFinance from "yahoo-finance2";
 
+// インスタンス化
 const yahooFinance = new YahooFinance();
 
 export async function GET(request: Request) {
@@ -27,11 +27,13 @@ export async function GET(request: Request) {
       case "3m":
         startDate.setMonth(endDate.getMonth() - 3);
         break;
+      case "1y":
       default:
         startDate.setFullYear(endDate.getFullYear() - 1);
         break;
     }
 
+    // biome-ignore lint/suspicious/noExplicitAny: ライブラリの型定義が不完全なため
     const chartResult = await (yahooFinance as any).chart(symbol, {
       period1: startDate.toISOString().split("T")[0],
       period2: endDate.toISOString().split("T")[0],
@@ -40,6 +42,7 @@ export async function GET(request: Request) {
 
     const history = chartResult.quotes || [];
 
+    // biome-ignore lint/suspicious/noExplicitAny: ライブラリの型定義が不完全なため
     const summary = await (yahooFinance as any).quoteSummary(symbol, {
       modules: [
         "summaryProfile",
@@ -57,9 +60,12 @@ export async function GET(request: Request) {
     const quoteTypeData = summary.quoteType;
 
     return NextResponse.json({
+      // biome-ignore lint/suspicious/noExplicitAny: 戻り値の型推論回避のため
       history: history.map((h: any) => ({
         date:
-          h.date instanceof Date ? h.date.toISOString().split("T")[0] : h.date,
+          h.date instanceof Date
+            ? h.date.toISOString().split("T")[0]
+            : h.date,
         close: h.close,
       })),
       details: {
@@ -72,7 +78,6 @@ export async function GET(request: Request) {
         per: summaryDetail?.trailingPE || null,
         pbr: stats?.priceToBook || null,
         dividendYield: summaryDetail?.dividendYield || null,
-        // --- 追加 ---
         marketCap: summaryDetail?.marketCap || null,
         eps: stats?.trailingEps || null,
         profitMargin: financial?.profitMargins || null,

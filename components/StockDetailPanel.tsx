@@ -1,4 +1,3 @@
-// components/StockDetailPanel.tsx
 "use client";
 
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
@@ -13,6 +12,8 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -33,17 +34,32 @@ type Props = {
 
 type Range = "5y" | "1y" | "6m" | "3m";
 
-// 移動平均線を計算する関数
-const calculateSMA = (data: any[], window: number) => {
+type ChartDataPoint = {
+  close: number;
+  [key: string]: any;
+};
+
+// 修正: 欠損データ(null/undefined)に強いSMA計算と型定義
+const calculateSMA = (data: ChartDataPoint[], window: number) => {
   return data.map((entry, index) => {
+    // データ数が足りない期間はnull
     if (index < window - 1) return { ...entry, [`sma${window}`]: null };
+
     const slice = data.slice(index - window + 1, index + 1);
-    const sum = slice.reduce((acc, curr) => acc + (curr.close || 0), 0);
-    return { ...entry, [`sma${window}`]: sum / window };
+
+    // 有効な数値データだけを抽出
+    const validValues = slice
+      .map((d) => d.close)
+      .filter((v) => typeof v === "number" && !isNaN(v));
+
+    if (validValues.length === 0) return { ...entry, [`sma${window}`]: null };
+
+    // 有効データのみで平均を計算
+    const sum = validValues.reduce((acc, curr) => acc + curr, 0);
+    return { ...entry, [`sma${window}`]: sum / validValues.length };
   });
 };
 
-// 大きな数値を「兆」「億」等に変換する関数
 const formatLargeNumber = (num: number | null) => {
   if (!num) return "-";
   if (num >= 1e12) return `${(num / 1e12).toFixed(2)}兆`;
@@ -55,6 +71,9 @@ export default function StockDetailPanel({ ticker }: Props) {
   const [data, setData] = useState<StockDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<Range>("1y");
+
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   useEffect(() => {
     const fetchData = async () => {
@@ -75,7 +94,7 @@ export default function StockDetailPanel({ ticker }: Props) {
   }, [ticker, range]);
 
   const handleRangeChange = (
-    _event: React.MouseEvent<HTMLElement>,
+    event: React.MouseEvent<HTMLElement>,
     newRange: Range | null,
   ) => {
     if (newRange !== null) {
@@ -83,11 +102,10 @@ export default function StockDetailPanel({ ticker }: Props) {
     }
   };
 
-  // チャートデータに移動平均線を追加
   const chartData = useMemo(() => {
     if (!data?.history) return [];
-    let processed = calculateSMA(data.history, 25); // 短期線 (25日)
-    processed = calculateSMA(processed, 75); // 中期線 (75日)
+    let processed = calculateSMA(data.history, 25);
+    processed = calculateSMA(processed, 75);
     return processed;
   }, [data]);
 
@@ -97,7 +115,7 @@ export default function StockDetailPanel({ ticker }: Props) {
         display="flex"
         justifyContent="center"
         p={4}
-        minHeight="300px"
+        minHeight={isMobile ? "200px" : "300px"}
         alignItems="center"
       >
         <CircularProgress size={24} color="secondary" />
@@ -108,18 +126,20 @@ export default function StockDetailPanel({ ticker }: Props) {
   if (!data) return <Typography p={2}>データ取得失敗</Typography>;
 
   const { details } = data;
-  const isPositive =
-    (chartData[chartData.length - 1]?.close || 0) >= (chartData[0]?.close || 0);
+  const lastValidClose =
+    [...chartData].reverse().find((d) => d.close != null)?.close || 0;
+  const firstValidClose = chartData.find((d) => d.close != null)?.close || 0;
+  const isPositive = lastValidClose >= firstValidClose;
+
   const chartColor = isPositive ? "#00E5FF" : "#ff1744";
   const isETF = details.quoteType === "ETF";
 
-  // 指標リストの定義
   const indicators = [
     {
       label: "PER (株価収益率)",
       value: details.per ? `${details.per.toFixed(1)}倍` : "-",
       desc: "現在の株価が「1株当たりの純利益」の何倍かを示す指標。一般的に低いほうが割安とされます。",
-      direction: "low", // 低いほうが良い
+      direction: "low",
     },
     {
       label: "PBR (株価純資産倍率)",
@@ -131,7 +151,7 @@ export default function StockDetailPanel({ ticker }: Props) {
       label: "ROE (自己資本利益率)",
       value: details.roe ? `${(details.roe * 100).toFixed(1)}%` : "-",
       desc: "株主が出したお金を元手に、どれだけ効率よく利益を上げたか。一般的に高いほうが優秀な経営とされます。",
-      direction: "high", // 高いほうが良い
+      direction: "high",
     },
     {
       label: "配当利回り",
@@ -159,7 +179,7 @@ export default function StockDetailPanel({ ticker }: Props) {
       label: "時価総額",
       value: formatLargeNumber(details.marketCap),
       desc: "企業の規模を表す指標。株価 × 発行済株式数で計算されます。",
-      direction: "neutral", // ニュートラル
+      direction: "neutral",
     },
     {
       label: "ベータ値",
@@ -172,15 +192,19 @@ export default function StockDetailPanel({ ticker }: Props) {
   return (
     <Box sx={{ p: 2, bgcolor: "rgba(0,0,0,0.3)", borderRadius: 2 }}>
       <Grid container spacing={3}>
-        {/* 左側: 指標一覧 (8つ) */}
         <Grid size={{ xs: 12, md: 5 }}>
           <Box display="flex" gap={1} mb={2} flexWrap="wrap">
             {isETF ? (
               <Chip
                 label="ETF"
-                variant="filled"
+                variant="outlined"
                 size="small"
-                sx={{ bgcolor: "#FFD740", color: "#000", fontWeight: "bold" }}
+                sx={{
+                  borderColor: "#FFD740",
+                  color: "#FFD740",
+                  fontWeight: "bold",
+                  borderWidth: 2,
+                }}
               />
             ) : (
               <Chip
@@ -197,24 +221,30 @@ export default function StockDetailPanel({ ticker }: Props) {
 
           <Grid container spacing={2}>
             {indicators.map((item) => (
-              <Grid size={6} key={item.value}>
+              <Grid size={6} key={item.label}>
+                {" "}
+                {/* 修正: keyを一意なlabelに変更 */}
                 <IndicatorItem item={item} />
               </Grid>
             ))}
           </Grid>
         </Grid>
 
-        {/* 右側: チャート */}
         <Grid size={{ xs: 12, md: 7 }}>
           <Box
             display="flex"
+            flexDirection={isMobile ? "column-reverse" : "row"}
             justifyContent="flex-end"
-            alignItems="center"
+            alignItems={isMobile ? "stretch" : "center"}
             mb={1}
             gap={2}
           >
-            {/* 移動平均線の凡例 */}
-            <Box display="flex" gap={2}>
+            <Box
+              display="flex"
+              gap={2}
+              justifyContent={isMobile ? "center" : "flex-start"}
+              mt={isMobile ? 1 : 0}
+            >
               <Box display="flex" alignItems="center" gap={0.5}>
                 <Box width={12} height={2} bgcolor="#FF9800" borderRadius={1} />
                 <Typography variant="caption" color="text.secondary">
@@ -234,6 +264,7 @@ export default function StockDetailPanel({ ticker }: Props) {
               exclusive
               onChange={handleRangeChange}
               size="small"
+              fullWidth={isMobile}
               sx={{
                 "& .MuiToggleButton-root": {
                   color: "text.secondary",
@@ -256,11 +287,16 @@ export default function StockDetailPanel({ ticker }: Props) {
             </ToggleButtonGroup>
           </Box>
 
-          <Box height={320} width="100%">
+          <Box height={isMobile ? 220 : 320} width="100%">
             <ResponsiveContainer>
               <AreaChart
                 data={chartData}
-                margin={{ top: 10, right: 0, left: -10, bottom: 0 }}
+                margin={{
+                  top: 10,
+                  right: 0,
+                  left: isMobile ? -20 : -10,
+                  bottom: 0,
+                }}
               >
                 <defs>
                   <linearGradient
@@ -287,9 +323,8 @@ export default function StockDetailPanel({ ticker }: Props) {
 
                 <XAxis
                   dataKey="date"
-                  tick={{ fill: "#666", fontSize: 10 }}
+                  tick={{ fill: "#666", fontSize: 9 }}
                   tickMargin={10}
-                  // minTickGapを設定して間引きを行う
                   minTickGap={30}
                   tickFormatter={(str) => {
                     const d = new Date(str);
@@ -302,10 +337,10 @@ export default function StockDetailPanel({ ticker }: Props) {
 
                 <YAxis
                   domain={["auto", "auto"]}
-                  tick={{ fill: "#666", fontSize: 10 }}
+                  tick={{ fill: "#666", fontSize: 9 }}
                   tickFormatter={(val) => `¥${val.toLocaleString()}`}
                   stroke="#444"
-                  width={60}
+                  width={isMobile ? 45 : 60}
                 />
 
                 <RechartsTooltip
@@ -320,6 +355,7 @@ export default function StockDetailPanel({ ticker }: Props) {
                   }}
                   itemStyle={{ padding: 0 }}
                   formatter={(value: number, name: string) => {
+                    if (value == null) return ["-", name];
                     if (name === "close")
                       return [`¥${Math.round(value).toLocaleString()}`, "株価"];
                     if (name === "sma25")
@@ -336,7 +372,6 @@ export default function StockDetailPanel({ ticker }: Props) {
                   }}
                 />
 
-                {/* メインの株価エリア */}
                 <Area
                   type="monotone"
                   dataKey="close"
@@ -344,24 +379,26 @@ export default function StockDetailPanel({ ticker }: Props) {
                   fill={`url(#color-${ticker})`}
                   strokeWidth={2}
                   activeDot={{ r: 5, strokeWidth: 0, fill: "#fff" }}
+                  connectNulls
                 />
 
-                {/* 移動平均線 (SMA) */}
                 <Line
                   type="monotone"
                   dataKey="sma25"
-                  stroke="#FF9800" // オレンジ
+                  stroke="#FF9800"
                   strokeWidth={1.5}
                   dot={false}
                   isAnimationActive={false}
+                  connectNulls
                 />
                 <Line
                   type="monotone"
                   dataKey="sma75"
-                  stroke="#9C27B0" // 紫
+                  stroke="#9C27B0"
                   strokeWidth={1.5}
                   dot={false}
                   isAnimationActive={false}
+                  connectNulls
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -372,7 +409,6 @@ export default function StockDetailPanel({ ticker }: Props) {
   );
 }
 
-// 指標アイテムコンポーネント
 const IndicatorItem = ({
   item,
 }: {
@@ -397,10 +433,21 @@ const IndicatorItem = ({
       }}
     >
       <Box display="flex" alignItems="center" gap={0.5} mb={0.5}>
-        <Typography variant="caption" color="text.secondary" noWrap>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          noWrap
+          sx={{ fontSize: "0.7rem" }}
+        >
           {item.label}
         </Typography>
-        <MuiTooltip title={item.desc} arrow placement="top" enterTouchDelay={0}>
+        <MuiTooltip
+          title={item.desc}
+          arrow
+          placement="top"
+          enterTouchDelay={0}
+          leaveTouchDelay={3000}
+        >
           <InfoOutlinedIcon
             sx={{ fontSize: 14, color: "text.disabled", cursor: "help" }}
           />
@@ -408,26 +455,38 @@ const IndicatorItem = ({
       </Box>
 
       <Box display="flex" alignItems="flex-end" justifyContent="space-between">
-        <Typography variant="body1" fontWeight="bold">
+        <Typography
+          variant="body1"
+          fontWeight="bold"
+          sx={{ fontSize: "0.9rem" }}
+        >
           {item.value}
         </Typography>
 
-        {/* 評価アイコン */}
         {item.direction === "high" && (
-          <MuiTooltip title="高いほうが良い" placement="right" arrow>
+          <MuiTooltip
+            title="高いほうが良い"
+            placement="right"
+            arrow
+            enterTouchDelay={0}
+          >
             <TrendingUpIcon
               sx={{ fontSize: 16, color: "#00E5FF", opacity: 0.7 }}
             />
           </MuiTooltip>
         )}
         {item.direction === "low" && (
-          <MuiTooltip title="低いほうが良い" placement="right" arrow>
+          <MuiTooltip
+            title="低いほうが良い"
+            placement="right"
+            arrow
+            enterTouchDelay={0}
+          >
             <TrendingDownIcon
               sx={{ fontSize: 16, color: "#00E5FF", opacity: 0.7 }}
             />
           </MuiTooltip>
         )}
-        {/* neutralの場合は何も表示しない */}
       </Box>
     </Box>
   );
