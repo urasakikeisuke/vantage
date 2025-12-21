@@ -1,12 +1,16 @@
 // app/layout.tsx
 
-import Box from "@mui/material/Box";
-import CssBaseline from "@mui/material/CssBaseline";
-import { ThemeProvider } from "@mui/material/styles";
-import { AppRouterCacheProvider } from "@mui/material-nextjs/v15-appRouter";
 import type { Metadata, Viewport } from "next";
-import theme from "../theme";
+import { Roboto } from "next/font/google";
+import Providers from "./providers";
 import "./globals.css";
+
+const roboto = Roboto({
+  weight: ["300", "400", "500", "700"],
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-roboto",
+});
 
 export const metadata: Metadata = {
   title: "Vantage",
@@ -19,11 +23,17 @@ export const metadata: Metadata = {
     apple: [{ url: "/icons/ios/180.png", sizes: "180x180", type: "image/png" }],
   },
   manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Vantage",
+  },
 };
 
 export const viewport: Viewport = {
   initialScale: 1,
   width: "device-width",
+  themeColor: "#0a1929",
 };
 
 export default function RootLayout({
@@ -33,22 +43,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ja">
-      <body suppressHydrationWarning>
-        <AppRouterCacheProvider>
-          <ThemeProvider theme={theme}>
-            <CssBaseline />
-            <Box
-              sx={{
-                flexGrow: 1,
-                minHeight: "100vh",
-                bgcolor: "background.default",
-              }}
-            >
-              {/* AppBarは削除し、各ページ側で制御します */}
-              <Box component="main">{children}</Box>
-            </Box>
-          </ThemeProvider>
-        </AppRouterCacheProvider>
+      <head>
+        <link rel="apple-touch-icon" href="/icons/ios/180.png" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+      </head>
+      <body className={roboto.variable} suppressHydrationWarning>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

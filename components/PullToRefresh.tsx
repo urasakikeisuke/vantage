@@ -6,17 +6,37 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 type Props = {
   children: ReactNode;
   onRefresh: () => Promise<void>;
+  onIndicatorChange?: (state: {
+    progress: number;
+    refreshing: boolean;
+  }) => void;
 };
 
-export default function PullToRefresh({ children, onRefresh }: Props) {
+export default function PullToRefresh({
+  children,
+  onRefresh,
+  onIndicatorChange,
+}: Props) {
   const [startY, setStartY] = useState(0);
   const [currentY, setCurrentY] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+  const indicatorRef = useRef<Props["onIndicatorChange"]>(onIndicatorChange);
 
   // 引っ張れる最大距離と、更新発動の閾値
   const MAX_PULL = 120;
   const THRESHOLD = 80;
+
+  useEffect(() => {
+    indicatorRef.current = onIndicatorChange;
+  }, [onIndicatorChange]);
+
+  useEffect(() => {
+    indicatorRef.current?.({
+      progress: Math.min((currentY / THRESHOLD) * 100, 100),
+      refreshing,
+    });
+  }, [currentY, refreshing]);
 
   useEffect(() => {
     const handleTouchStart = (e: TouchEvent) => {
@@ -99,7 +119,7 @@ export default function PullToRefresh({ children, onRefresh }: Props) {
           left: 0,
           right: 0,
           height: 60,
-          display: "flex",
+          display: "none",
           justifyContent: "center",
           alignItems: "center",
           opacity: currentY > 0 ? 1 : 0,
