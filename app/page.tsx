@@ -1,174 +1,107 @@
 // app/page.tsx
-"use client";
+import { unstable_cache } from "next/cache";
+import { redirect } from "next/navigation";
+import DashboardClient from "@/components/DashboardClient";
+import { DEFAULT_USDJPY, SYMBOL_USDJPY } from "@/lib/constants";
+import { fetchStockPricesServer } from "@/lib/stocks";
+import { createClient } from "@/lib/supabase/server";
+import type {
+  HistoryData,
+  PortfolioData,
+  PortfolioItem,
+  StockPrice,
+} from "@/types";
+import { calculatePortfolioItem } from "@/utils/calculator";
 
-import AddIcon from "@mui/icons-material/Add";
-import { Box, Container, Fab, Paper, Typography } from "@mui/material";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import AppHeader from "@/components/AppHeader";
-import AssetDialog, { type EditItem } from "@/components/AssetDialog";
-import AssetHistoryChart from "@/components/AssetHistoryChart";
-import AssetTable from "@/components/AssetTable";
-import BuyMoreDialog from "@/components/BuyMoreDialog";
-import DashboardSkeleton from "@/components/DashboardSkeleton";
-import HistoryDialog from "@/components/HistoryDialog";
-import PortfolioChart from "@/components/PortfolioChart";
-import PullToRefresh from "@/components/PullToRefresh";
-import SummaryCards from "@/components/SummaryCards";
-import { usePortfolio } from "@/hooks/usePortfolio";
-import { createClient } from "@/lib/supabase/client";
-import type { PortfolioRow } from "@/types";
+const fetchStockPricesCached = unstable_cache(
+  async (symbols: string[]) => {
+    return fetchStockPricesServer(symbols, { includeMeta: true });
+  },
+  [],
+  { revalidate: 60 },
+);
 
-export default function Home() {
-  const {
-    rows,
-    groupedRows,
-    historyData,
-    loading,
-    totalValue,
-    totalInvestment,
-    totalStockInvestment,
-    totalDividend,
-    fetchPortfolioData,
-    deleteAsset,
-  } = usePortfolio();
-
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editItem, setEditItem] = useState<EditItem>(null);
-  const [isBuyMoreOpen, setIsBuyMoreOpen] = useState(false);
-  const [buyMoreTarget, setBuyMoreTarget] = useState<{
-    id: string;
-    ticker: string;
-    currentShares: number;
-    currentPrice: number;
-  } | null>(null);
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-
-  const supabase = createClient();
-  const router = useRouter();
+export default async function Home() {
+  const supabase = await createClient();
 
   // 認証チェック
-  useEffect(() => {
-    const checkUser = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) router.push("/login");
-    };
-    checkUser();
-  }, [router, supabase]);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const [portfoliosRes, historyRes] = await Promise.all([
+    supabase
+      .from("portfolios")
+      .select("*")
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("asset_history")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("date", { ascending: true }),
+  ]);
 
   // データ分割
-  const stockRows = groupedRows.filter((r) => r.type !== "MUTUALFUND");
-  const fundRows = groupedRows.filter((r) => r.type === "MUTUALFUND");
+  const portfolioItems = (portfoliosRes.data || []) as PortfolioItem[];
+  const initialHistoryData = (historyRes.data || []) as HistoryData[];
+
+  let initialPortfolioData: PortfolioData = {
+    rows: [],
+    totalValue: 0,
+    totalInvestment: 0,
+    totalStockInvestment: 0,
+    totalDividend: 0,
+    exchangeRate: null,
+  };
 
   // ハンドラ
-  const handleEdit = (item: PortfolioRow) => {
-    setEditItem({
-      id: item.id,
-      ticker: item.ticker,
-      shares: item.shares,
-      acquisition_price: item.acquisition_price,
-      account_type: item.account_type || "nisa_growth",
-      is_locked: item.is_locked,
-    });
-    setIsDialogOpen(true);
-  };
+  if (portfolioItems.length > 0) {
+    const uniqueTickers = Array.from(
+      new Set(
+        portfolioItems
+          .map((p) => (p.ticker || "").trim())
+          .filter((t) => t !== ""),
+      ),
+    ).sort((a, b) => a.localeCompare(b));
 
-  const handleBuyMore = (item: PortfolioRow) => {
-    setBuyMoreTarget({
-      id: item.id,
-      ticker: item.name,
-      currentShares: item.shares,
-      currentPrice: item.acquisition_price,
-    });
-    setIsBuyMoreOpen(true);
-  };
+    const symbols = [...uniqueTickers, SYMBOL_USDJPY];
+    const prices = await fetchStockPricesCached(symbols);
+    const pricesMap = new Map(prices.map((p) => [p.symbol, p as StockPrice]));
+    const usdjpy = pricesMap.get(SYMBOL_USDJPY)?.price || DEFAULT_USDJPY;
 
-  const handleAddClick = () => {
-    setEditItem(null);
-    setIsDialogOpen(true);
-  };
+    let sumValue = 0;
+    let sumInvestment = 0;
+    let sumStockInv = 0;
+    let sumDividend = 0;
+
+    const combinedData = portfolioItems.map((p) => {
+      const priceData = pricesMap.get(p.ticker);
+      const row = calculatePortfolioItem(p, priceData, usdjpy);
+
+      if (row.type !== "MUTUALFUND") sumStockInv += row.investmentValue;
+
+      sumValue += row.currentValue;
+      sumInvestment += row.investmentValue;
+      sumDividend += row.annualDividend;
+
+      return row;
+    });
+
+    initialPortfolioData = {
+      rows: combinedData,
+      totalValue: Math.round(sumValue),
+      totalInvestment: Math.round(sumInvestment),
+      totalStockInvestment: Math.round(sumStockInv),
+      totalDividend: Math.round(sumDividend),
+      exchangeRate: usdjpy,
+    };
+  }
 
   return (
-    <PullToRefresh onRefresh={async () => fetchPortfolioData(true)}>
-      <Box
-        sx={{ flexGrow: 1, bgcolor: "background.default", minHeight: "100vh" }}
-      >
-        <AppHeader
-          onRefresh={() => fetchPortfolioData(true)}
-          onOpenHistory={() => setIsHistoryOpen(true)}
-        />
-
-        <Container maxWidth="lg" sx={{ mt: 4, pb: 10 }}>
-          {loading ? (
-            <DashboardSkeleton />
-          ) : (
-            <>
-              <SummaryCards
-                totalValue={totalValue}
-                totalInvestment={totalInvestment}
-                totalDividend={totalDividend}
-                stockInvestment={totalStockInvestment}
-              />
-              <AssetHistoryChart data={historyData} />
-              {rows.length > 0 && <PortfolioChart data={rows} />}
-
-              <AssetTable
-                title="株式・ETF"
-                data={stockRows}
-                onEdit={handleEdit}
-                onBuyMore={handleBuyMore}
-                onDelete={deleteAsset}
-              />
-              <AssetTable
-                title="投資信託"
-                data={fundRows}
-                onEdit={handleEdit}
-                onBuyMore={handleBuyMore}
-                onDelete={deleteAsset}
-              />
-
-              {rows.length === 0 && (
-                <Paper sx={{ p: 4, textAlign: "center" }}>
-                  <Typography color="text.secondary">
-                    データがありません。右下のボタンから資産を追加してください。
-                  </Typography>
-                </Paper>
-              )}
-            </>
-          )}
-
-          <Fab
-            color="primary"
-            aria-label="add"
-            sx={{ position: "fixed", bottom: 32, right: 32 }}
-            onClick={handleAddClick}
-          >
-            <AddIcon />
-          </Fab>
-
-          <AssetDialog
-            open={isDialogOpen}
-            onClose={() => setIsDialogOpen(false)}
-            onSuccess={() => fetchPortfolioData(false)}
-            editItem={editItem}
-          />
-
-          <BuyMoreDialog
-            open={isBuyMoreOpen}
-            onClose={() => setIsBuyMoreOpen(false)}
-            onSuccess={() => fetchPortfolioData(false)}
-            targetItem={buyMoreTarget}
-          />
-
-          <HistoryDialog
-            open={isHistoryOpen}
-            onClose={() => setIsHistoryOpen(false)}
-            onRestore={() => fetchPortfolioData(false)}
-          />
-        </Container>
-      </Box>
-    </PullToRefresh>
+    <DashboardClient
+      initialPortfolioData={initialPortfolioData}
+      initialHistoryData={initialHistoryData}
+    />
   );
 }

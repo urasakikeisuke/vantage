@@ -1,7 +1,7 @@
 // lib/logger.ts
 import { createClient } from "@/lib/supabase/client";
 
-export type OperationType = "add" | "edit" | "delete" | "buy_more";
+export type OperationType = "add" | "edit" | "delete" | "buy_more" | "sell";
 
 export const logOperation = async (
   portfolioId: string | null,

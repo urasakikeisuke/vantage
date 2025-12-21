@@ -88,12 +88,20 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const symbolsParam = searchParams.get("symbols");
+  const includeMeta = searchParams.get("meta") === "1";
 
   if (!symbolsParam) {
     return NextResponse.json({ error: "No symbols" }, { status: 400 });
   }
 
-  const symbols = symbolsParam.split(",");
+  const symbols = Array.from(
+    new Set(
+      symbolsParam
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s !== ""),
+    ),
+  ).sort((a, b) => a.localeCompare(b));
 
   try {
     const quotes = await Promise.all(
@@ -116,14 +124,29 @@ export async function GET(request: Request) {
           let sector = "その他";
           let quoteType = quote.quoteType;
 
-          if (symbol !== "USDJPY=X") {
+          const sectorMap: Record<string, string> = {
+            "Financial Services": "金融",
+            Technology: "テクノロジー",
+            "Consumer Cyclical": "一般消費財",
+            "Consumer Defensive": "生活必需品",
+            Healthcare: "ヘルスケア",
+            Industrials: "資本財",
+            Energy: "エネルギー",
+            Utilities: "公共事業",
+            "Real Estate": "不動産",
+            "Basic Materials": "素材",
+            "Communication Services": "通信",
+          };
+
+          if (includeMeta && symbol !== "USDJPY=X") {
             try {
               // biome-ignore lint/suspicious/noExplicitAny: ライブラリ型不備対応
               const summary = await (yf as any).quoteSummary(symbol, {
                 modules: ["summaryProfile", "quoteType"],
               });
               if (summary.summaryProfile?.sector) {
-                sector = summary.summaryProfile.sector;
+                const englishSector = summary.summaryProfile.sector;
+                sector = sectorMap[englishSector] || englishSector;
               }
               if (summary.quoteType?.quoteType) {
                 quoteType = summary.quoteType.quoteType;
@@ -132,6 +155,8 @@ export async function GET(request: Request) {
               console.warn(`Sector fetch failed for ${symbol}`, e);
             }
           }
+
+          if (quoteType === "ETF") sector = "ETF";
 
           let stockName = quote.longName || quote.shortName || symbol;
           const masterInfo = (
@@ -162,7 +187,11 @@ export async function GET(request: Request) {
     );
 
     const validQuotes = quotes.filter((q) => q !== null);
-    return NextResponse.json(validQuotes);
+    return NextResponse.json(validQuotes, {
+      headers: {
+        "Cache-Control": "private, max-age=60, stale-while-revalidate=300",
+      },
+    });
   } catch (_error) {
     return NextResponse.json({ error: "Failed" }, { status: 500 });
   }

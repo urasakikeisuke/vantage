@@ -1,15 +1,5 @@
 // theme.ts
-"use client";
-
 import { createTheme } from "@mui/material/styles";
-import { Roboto } from "next/font/google";
-
-// Google Fontsの読み込み（MUI標準のRobotoフォント）
-const roboto = Roboto({
-  weight: ["300", "400", "500", "700"],
-  subsets: ["latin"],
-  display: "swap",
-});
 
 // カスタムパレットの型定義拡張
 declare module "@mui/material/styles" {
@@ -58,7 +48,8 @@ const theme = createTheme({
   },
   // フォント設定
   typography: {
-    fontFamily: roboto.style.fontFamily,
+    fontFamily:
+      "var(--font-roboto), system-ui, -apple-system, 'Segoe UI', Arial, sans-serif",
     h1: { fontSize: "2rem", fontWeight: 700 },
     h2: { fontSize: "1.5rem", fontWeight: 600 },
   },

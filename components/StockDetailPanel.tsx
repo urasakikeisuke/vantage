@@ -8,6 +8,7 @@ import {
   Chip,
   CircularProgress,
   Grid,
+  LinearProgress,
   Tooltip as MuiTooltip,
   ToggleButton,
   ToggleButtonGroup,
@@ -15,6 +16,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
+import type React from "react";
 import { useMemo, useState } from "react";
 import {
   Area,
@@ -22,15 +24,18 @@ import {
   CartesianGrid,
   Line,
   Tooltip as RechartsTooltip,
+  ReferenceLine,
   ResponsiveContainer,
   XAxis,
   YAxis,
 } from "recharts";
 import useSWR from "swr"; // 追加
 import { api } from "@/lib/api"; // 追加
+import type { PriceAlert } from "@/types";
 
 type Props = {
   ticker: string;
+  priceAlerts?: PriceAlert[];
 };
 
 type Range = "5y" | "1y" | "6m" | "3m";
@@ -69,24 +74,32 @@ const formatLargeNumber = (num: number | null) => {
   return num.toLocaleString();
 };
 
-export default function StockDetailPanel({ ticker }: Props) {
+export default function StockDetailPanel({ ticker, priceAlerts }: Props) {
   const [range, setRange] = useState<Range>("1y");
 
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"), {
+    noSsr: true,
+  });
 
-  const { data, isLoading: loading } = useSWR(
+  const {
+    data,
+    isLoading: loading,
+    isValidating,
+  } = useSWR(
     ["stockDetail", ticker, range],
     ([_, s, r]) => api.fetchStockDetail(s, r),
     {
       revalidateOnFocus: false,
+      keepPreviousData: true,
     },
   );
 
   const handleRangeChange = (
-    _event: React.MouseEvent<HTMLElement>,
+    event: React.MouseEvent<HTMLElement>,
     newRange: Range | null,
   ) => {
+    event.stopPropagation();
     if (newRange !== null) {
       setRange(newRange);
     }
@@ -99,7 +112,11 @@ export default function StockDetailPanel({ ticker }: Props) {
     return processed;
   }, [data]);
 
-  if (loading) {
+  const alertLines = useMemo(() => {
+    return (priceAlerts || []).filter((a) => a.ticker === ticker);
+  }, [priceAlerts, ticker]);
+
+  if (loading && !data) {
     return (
       <Box
         display="flex"
@@ -192,8 +209,6 @@ export default function StockDetailPanel({ ticker }: Props) {
                 sx={{
                   borderColor: "#FFD740",
                   color: "#FFD740",
-                  fontWeight: "bold",
-                  borderWidth: 2,
                 }}
               />
             ) : (
@@ -253,6 +268,9 @@ export default function StockDetailPanel({ ticker }: Props) {
               value={range}
               exclusive
               onChange={handleRangeChange}
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
               size="small"
               fullWidth={isMobile}
               sx={{
@@ -277,8 +295,34 @@ export default function StockDetailPanel({ ticker }: Props) {
             </ToggleButtonGroup>
           </Box>
 
-          <Box height={isMobile ? 220 : 320} width="100%">
-            <ResponsiveContainer>
+          <Box
+            height={isMobile ? 220 : 320}
+            width="100%"
+            sx={{ minWidth: 0, minHeight: 0, position: "relative" }}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+          >
+            {isValidating && (
+              <Box
+                sx={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  zIndex: 2,
+                }}
+              >
+                <LinearProgress
+                  sx={{
+                    "& .MuiLinearProgress-bar": {
+                      backgroundColor: "#00E5FF",
+                    },
+                  }}
+                />
+              </Box>
+            )}
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <AreaChart
                 data={chartData}
                 margin={{
@@ -333,6 +377,31 @@ export default function StockDetailPanel({ ticker }: Props) {
                   width={isMobile ? 45 : 60}
                 />
 
+                {alertLines.map((a) => {
+                  const color =
+                    a.alert_type === "above" ? "#00E676" : "#FF5252";
+                  const label =
+                    a.alert_type === "above"
+                      ? `以上 ¥${Math.round(a.target_price).toLocaleString()}`
+                      : `以下 ¥${Math.round(a.target_price).toLocaleString()}`;
+                  return (
+                    <ReferenceLine
+                      key={a.id}
+                      y={a.target_price}
+                      stroke={color}
+                      strokeDasharray={a.is_active ? "6 4" : "2 6"}
+                      strokeOpacity={a.is_active ? 0.9 : 0.55}
+                      ifOverflow="extendDomain"
+                      label={{
+                        value: label,
+                        position: "right",
+                        fill: color,
+                        fontSize: 11,
+                      }}
+                    />
+                  );
+                })}
+
                 <RechartsTooltip
                   labelFormatter={(v: string) => v}
                   contentStyle={{
@@ -344,8 +413,8 @@ export default function StockDetailPanel({ ticker }: Props) {
                     boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
                   }}
                   itemStyle={{ padding: 0 }}
-                  formatter={(value: number, name: string) => {
-                    if (value == null) return ["-", name];
+                  formatter={(value, name) => {
+                    if (typeof value !== "number") return ["-", String(name)];
                     if (name === "close")
                       return [`¥${Math.round(value).toLocaleString()}`, "株価"];
                     if (name === "sma25")
@@ -358,7 +427,7 @@ export default function StockDetailPanel({ ticker }: Props) {
                         `¥${Math.round(value).toLocaleString()}`,
                         "75日移動平均",
                       ];
-                    return [value, name];
+                    return [String(value), String(name)];
                   }}
                 />
 
@@ -405,79 +474,82 @@ const IndicatorItem = ({
   item: { label: string; value: string; desc: string; direction: string };
 }) => {
   return (
-    <Box
-      sx={{
-        p: 1.5,
-        bgcolor: "rgba(255,255,255,0.03)",
-        borderRadius: 1,
-        border: "1px solid rgba(255,255,255,0.05)",
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "space-between",
-        transition: "all 0.2s",
-        "&:hover": {
-          bgcolor: "rgba(255,255,255,0.06)",
-          borderColor: "rgba(255,255,255,0.1)",
-        },
-      }}
+    <MuiTooltip
+      title={item.desc}
+      arrow
+      placement="top"
+      enterTouchDelay={0}
+      leaveTouchDelay={3000}
     >
-      <Box display="flex" alignItems="center" gap={0.5} mb={0.5}>
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          noWrap
-          sx={{ fontSize: "0.7rem" }}
-        >
-          {item.label}
-        </Typography>
-        <MuiTooltip
-          title={item.desc}
-          arrow
-          placement="top"
-          enterTouchDelay={0}
-          leaveTouchDelay={3000}
-        >
-          <InfoOutlinedIcon
-            sx={{ fontSize: 14, color: "text.disabled", cursor: "help" }}
-          />
-        </MuiTooltip>
-      </Box>
-
-      <Box display="flex" alignItems="flex-end" justifyContent="space-between">
-        <Typography
-          variant="body1"
-          fontWeight="bold"
-          sx={{ fontSize: "0.9rem" }}
-        >
-          {item.value}
-        </Typography>
-
-        {item.direction === "high" && (
-          <MuiTooltip
-            title="高いほうが良い"
-            placement="right"
-            arrow
-            enterTouchDelay={0}
+      <Box
+        sx={{
+          p: 1.5,
+          bgcolor: "rgba(255,255,255,0.03)",
+          borderRadius: 1,
+          border: "1px solid rgba(255,255,255,0.05)",
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          transition: "all 0.2s",
+          cursor: "help",
+          "&:hover": {
+            bgcolor: "rgba(255,255,255,0.06)",
+            borderColor: "rgba(255,255,255,0.1)",
+          },
+        }}
+      >
+        <Box display="flex" alignItems="center" gap={0.5} mb={0.5}>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            noWrap
+            sx={{ fontSize: "0.7rem" }}
           >
-            <TrendingUpIcon
-              sx={{ fontSize: 16, color: "#00E5FF", opacity: 0.7 }}
-            />
-          </MuiTooltip>
-        )}
-        {item.direction === "low" && (
-          <MuiTooltip
-            title="低いほうが良い"
-            placement="right"
-            arrow
-            enterTouchDelay={0}
+            {item.label}
+          </Typography>
+          <InfoOutlinedIcon sx={{ fontSize: 14, color: "text.disabled" }} />
+        </Box>
+
+        <Box
+          display="flex"
+          alignItems="flex-end"
+          justifyContent="space-between"
+        >
+          <Typography
+            variant="body1"
+            fontWeight="bold"
+            sx={{ fontSize: "0.9rem" }}
           >
-            <TrendingDownIcon
-              sx={{ fontSize: 16, color: "#00E5FF", opacity: 0.7 }}
-            />
-          </MuiTooltip>
-        )}
+            {item.value}
+          </Typography>
+
+          {item.direction === "high" && (
+            <MuiTooltip
+              title="高いほうが良い"
+              placement="right"
+              arrow
+              enterTouchDelay={0}
+            >
+              <TrendingUpIcon
+                sx={{ fontSize: 16, color: "#00E5FF", opacity: 0.7 }}
+              />
+            </MuiTooltip>
+          )}
+          {item.direction === "low" && (
+            <MuiTooltip
+              title="低いほうが良い"
+              placement="right"
+              arrow
+              enterTouchDelay={0}
+            >
+              <TrendingDownIcon
+                sx={{ fontSize: 16, color: "#00E5FF", opacity: 0.7 }}
+              />
+            </MuiTooltip>
+          )}
+        </Box>
       </Box>
-    </Box>
+    </MuiTooltip>
   );
 };

@@ -6,6 +6,7 @@ import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
 import LockIcon from "@mui/icons-material/Lock";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
+import SellIcon from "@mui/icons-material/Sell";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import {
   Box,
@@ -26,7 +27,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { Fragment, type MouseEvent, useState } from "react";
+import { Fragment, type MouseEvent, useEffect, useState } from "react";
 import type { GroupedPortfolio, PortfolioRow } from "@/types";
 import StockDetailPanel from "./StockDetailPanel";
 
@@ -35,6 +36,7 @@ type Props = {
   data: GroupedPortfolio[];
   onEdit: (item: PortfolioRow) => void;
   onBuyMore: (item: PortfolioRow) => void;
+  onSell?: (item: PortfolioRow) => void;
   onDelete: (item: PortfolioRow) => void;
 };
 
@@ -43,6 +45,7 @@ type RowMenuProps = {
   menuTargetItem: PortfolioRow | null;
   handleMenuClose: () => void;
   onBuyMore: (item: PortfolioRow) => void;
+  onSell?: (item: PortfolioRow) => void;
   onEdit: (item: PortfolioRow) => void;
   onDelete: (item: PortfolioRow) => void;
 };
@@ -165,11 +168,13 @@ function DesktopRow({
   row,
   onEdit,
   onBuyMore,
+  onSell,
   onDelete,
 }: {
   row: GroupedPortfolio;
   onEdit: (i: PortfolioRow) => void;
   onBuyMore: (i: PortfolioRow) => void;
+  onSell?: (i: PortfolioRow) => void;
   onDelete: (i: PortfolioRow) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -358,6 +363,7 @@ function DesktopRow({
         menuTargetItem={menuTargetItem}
         handleMenuClose={handleMenuClose}
         onBuyMore={onBuyMore}
+        onSell={onSell}
         onEdit={onEdit}
         onDelete={onDelete}
       />
@@ -370,11 +376,13 @@ function MobileCard({
   row,
   onEdit,
   onBuyMore,
+  onSell,
   onDelete,
 }: {
   row: GroupedPortfolio;
   onEdit: (i: PortfolioRow) => void;
   onBuyMore: (i: PortfolioRow) => void;
+  onSell?: (i: PortfolioRow) => void;
   onDelete: (i: PortfolioRow) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -556,6 +564,7 @@ function MobileCard({
         menuTargetItem={menuTargetItem}
         handleMenuClose={handleMenuClose}
         onBuyMore={onBuyMore}
+        onSell={onSell}
         onEdit={onEdit}
         onDelete={onDelete}
       />
@@ -569,6 +578,7 @@ function RowMenu({
   menuTargetItem,
   handleMenuClose,
   onBuyMore,
+  onSell,
   onEdit,
   onDelete,
 }: RowMenuProps) {
@@ -590,6 +600,20 @@ function RowMenu({
         </ListItemIcon>
         買い増し
       </MenuItem>
+      {onSell && (
+        <MenuItem
+          onClick={() => {
+            if (menuTargetItem) onSell(menuTargetItem);
+            handleMenuClose();
+          }}
+          disabled={menuTargetItem?.is_locked}
+        >
+          <ListItemIcon>
+            <SellIcon fontSize="small" color="warning" />
+          </ListItemIcon>
+          売却
+        </MenuItem>
+      )}
       <MenuItem
         onClick={() => {
           if (menuTargetItem) onEdit(menuTargetItem);
@@ -622,17 +646,35 @@ export default function AssetTable({
   data,
   onEdit,
   onBuyMore,
+  onSell,
   onDelete,
 }: Props) {
   const theme = useTheme();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // sm (600px) 以下をモバイルとみなす
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const mediaIsMobile = useMediaQuery(theme.breakpoints.down("sm"), {
+    noSsr: true,
+  });
+  const isMobile = mounted ? mediaIsMobile : false;
 
   if (data.length === 0) return null;
 
   return (
-    <Box sx={{ mb: 4 }}>
-      <Typography variant="h6" gutterBottom fontWeight="bold" sx={{ mt: 2 }}>
+    <Paper
+      elevation={isMobile ? 0 : 3}
+      sx={{
+        p: isMobile ? 0 : 3,
+        mb: 4,
+        bgcolor: isMobile ? "transparent" : "background.paper",
+        borderRadius: isMobile ? 0 : 2,
+        boxShadow: isMobile ? "none" : undefined,
+      }}
+    >
+      <Typography variant="h6" gutterBottom fontWeight="bold">
         {title}
       </Typography>
 
@@ -645,6 +687,7 @@ export default function AssetTable({
               row={row}
               onEdit={onEdit}
               onBuyMore={onBuyMore}
+              onSell={onSell}
               onDelete={onDelete}
             />
           ))}
@@ -652,9 +695,13 @@ export default function AssetTable({
       ) : (
         /* PC: テーブル表示 */
         <TableContainer
-          component={Paper}
-          elevation={3}
-          sx={{ bgcolor: "background.paper" }}
+          component={Box}
+          sx={{
+            borderRadius: 2,
+            border: "1px solid",
+            borderColor: "divider",
+            overflow: "hidden",
+          }}
         >
           <Table>
             <TableHead>
@@ -678,6 +725,7 @@ export default function AssetTable({
                   row={row}
                   onEdit={onEdit}
                   onBuyMore={onBuyMore}
+                  onSell={onSell}
                   onDelete={onDelete}
                 />
               ))}
@@ -685,6 +733,6 @@ export default function AssetTable({
           </Table>
         </TableContainer>
       )}
-    </Box>
+    </Paper>
   );
 }

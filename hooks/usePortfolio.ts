@@ -6,19 +6,45 @@ import { api } from "@/lib/api";
 import { DEFAULT_USDJPY, SYMBOL_USDJPY } from "@/lib/constants";
 import { logOperation } from "@/lib/logger";
 import { createClient } from "@/lib/supabase/client";
-import type { GroupedPortfolio, PortfolioItem, PortfolioRow } from "@/types";
+import type {
+  GroupedPortfolio,
+  HistoryData,
+  PortfolioData,
+  PortfolioItem,
+  PortfolioRow,
+} from "@/types";
 import { calculatePortfolioItem } from "@/utils/calculator";
 
 // SWRのキー
 const KEY_PORTFOLIO = "portfolioData";
 const KEY_HISTORY = "historyData";
 
-export const usePortfolio = () => {
-  const supabase = createClient();
+type UsePortfolioOptions = {
+  fallbackPortfolioData?: PortfolioData;
+  fallbackHistoryData?: HistoryData[];
+};
+
+export const usePortfolio = (options: UsePortfolioOptions = {}) => {
+  const supabase = useMemo(
+    () => (typeof window === "undefined" ? null : createClient()),
+    [],
+  );
 
   // --- Data Fetchers ---
 
   const fetchPortfolioData = async () => {
+    if (!supabase) {
+      return (
+        options.fallbackPortfolioData ?? {
+          rows: [],
+          totalValue: 0,
+          totalInvestment: 0,
+          totalStockInvestment: 0,
+          totalDividend: 0,
+          exchangeRate: null,
+        }
+      );
+    }
     const { data: portfolios, error } = await supabase
       .from("portfolios")
       .select("*")
@@ -37,8 +63,14 @@ export const usePortfolio = () => {
       };
     }
 
-    const symbols = `${portfolios.map((p) => p.ticker).join(",")},${SYMBOL_USDJPY}`;
-    const prices = await api.fetchStockPrices(symbols);
+    const uniqueTickers = Array.from(
+      new Set(
+        portfolios.map((p) => (p.ticker || "").trim()).filter((t) => t !== ""),
+      ),
+    ).sort((a, b) => a.localeCompare(b));
+
+    const symbols = [...uniqueTickers, SYMBOL_USDJPY].join(",");
+    const prices = await api.fetchStockPrices(symbols, { includeMeta: true });
 
     const pricesMap = new Map(prices.map((p) => [p.symbol, p]));
     const usdjpy = pricesMap.get(SYMBOL_USDJPY)?.price || DEFAULT_USDJPY;
@@ -72,18 +104,31 @@ export const usePortfolio = () => {
   };
 
   const fetchHistoryData = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return [];
+    if (!supabase) return options.fallbackHistoryData ?? [];
+    if (typeof navigator !== "undefined" && !navigator.onLine) return [];
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return [];
 
-    const { data } = await supabase
-      .from("asset_history")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("date", { ascending: true });
+      const { data } = await supabase
+        .from("asset_history")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("date", { ascending: true });
 
-    return data || [];
+      return data || [];
+    } catch (error) {
+      if (typeof navigator !== "undefined" && !navigator.onLine) return [];
+      if (
+        error instanceof TypeError &&
+        error.message.includes("Failed to fetch")
+      ) {
+        return [];
+      }
+      throw error;
+    }
   };
 
   // --- SWR Hooks ---
@@ -96,6 +141,7 @@ export const usePortfolio = () => {
   } = useSWR(KEY_PORTFOLIO, fetchPortfolioData, {
     revalidateOnFocus: false,
     refreshInterval: 0, // 自動更新はしない（API制限考慮）
+    fallbackData: options.fallbackPortfolioData,
   });
 
   const { data: historyData, mutate: mutateHistory } = useSWR(
@@ -103,6 +149,7 @@ export const usePortfolio = () => {
     fetchHistoryData,
     {
       revalidateOnFocus: false,
+      fallbackData: options.fallbackHistoryData,
     },
   );
 
@@ -112,14 +159,16 @@ export const usePortfolio = () => {
   const recordHistory = useCallback(
     async (totalVal: number, totalInv: number) => {
       if (totalVal === 0) return;
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const today = new Date().toISOString().split("T")[0];
-
       try {
+        if (!supabase) return;
+        if (typeof navigator !== "undefined" && !navigator.onLine) return;
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const today = new Date().toISOString().split("T")[0];
+
         // 1. 既存データの確認
         const { data: existing, error: selectError } = await supabase
           .from("asset_history")
@@ -152,6 +201,12 @@ export const usePortfolio = () => {
         // 履歴データを再取得
         mutateHistory();
       } catch (error) {
+        if (typeof navigator !== "undefined" && !navigator.onLine) return;
+        if (
+          error instanceof TypeError &&
+          error.message.includes("Failed to fetch")
+        )
+          return;
         console.error("History record error:", error);
       }
     },
@@ -160,6 +215,7 @@ export const usePortfolio = () => {
 
   // 削除処理
   const deleteAsset = async (item: PortfolioRow) => {
+    if (!supabase) return;
     if (!confirm(`本当に「${item.name || item.ticker}」を削除しますか？`))
       return;
 
@@ -190,6 +246,8 @@ export const usePortfolio = () => {
 
   // 手動更新用ラッパー
   const refreshAll = async (_isRefresh = false) => {
+    if (!supabase) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
     // isRefreshがtrueならキャッシュを破棄して再取得（SWRのmutateを使用）
     await mutatePortfolio();
     await mutateHistory();
@@ -264,7 +322,7 @@ export const usePortfolio = () => {
     rows: portfolioData?.rows || [],
     groupedRows,
     historyData: historyData || [],
-    loading: portfolioLoading,
+    loading: portfolioLoading && !portfolioData,
     totalValue: portfolioData?.totalValue || 0,
     totalInvestment: portfolioData?.totalInvestment || 0,
     totalStockInvestment: portfolioData?.totalStockInvestment || 0,
