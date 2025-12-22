@@ -116,6 +116,8 @@ export default function StockDetailPanel({ ticker, priceAlerts }: Props) {
     return (priceAlerts || []).filter((a) => a.ticker === ticker);
   }, [priceAlerts, ticker]);
 
+  const dashPatterns = ["6 4", "10 3", "4 4", "8 2", "12 4"];
+
   if (loading && !data) {
     return (
       <Box
@@ -377,19 +379,24 @@ export default function StockDetailPanel({ ticker, priceAlerts }: Props) {
                   width={isMobile ? 45 : 60}
                 />
 
-                {alertLines.map((a) => {
+                {alertLines.map((a, idx) => {
                   const color =
                     a.alert_type === "above" ? "#00E676" : "#FF5252";
+                  const prefix = `A${idx + 1}: `;
                   const label =
                     a.alert_type === "above"
-                      ? `以上 ¥${Math.round(a.target_price).toLocaleString()}`
-                      : `以下 ¥${Math.round(a.target_price).toLocaleString()}`;
+                      ? `${prefix}以上 ¥${Math.round(a.target_price).toLocaleString()}`
+                      : `${prefix}以下 ¥${Math.round(a.target_price).toLocaleString()}`;
                   return (
                     <ReferenceLine
                       key={a.id}
                       y={a.target_price}
                       stroke={color}
-                      strokeDasharray={a.is_active ? "6 4" : "2 6"}
+                      strokeDasharray={
+                        a.is_active
+                          ? dashPatterns[idx % dashPatterns.length]
+                          : "2 6"
+                      }
                       strokeOpacity={a.is_active ? 0.9 : 0.55}
                       ifOverflow="extendDomain"
                       label={{

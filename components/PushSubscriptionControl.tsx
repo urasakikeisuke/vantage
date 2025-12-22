@@ -54,7 +54,9 @@ export default function PushSubscriptionControl({ fullWidth }: Props) {
     );
   }, []);
 
-  const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
+  const vapidPublicKey = (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "")
+    .trim()
+    .replace(/\s+/g, "");
 
   const getRegistration = useCallback(async () => {
     if (!supported) return null;
@@ -148,9 +150,26 @@ export default function PushSubscriptionControl({ fullWidth }: Props) {
         (await navigator.serviceWorker.getRegistration()) ??
         (await navigator.serviceWorker.register("/sw.js"));
 
+      let applicationServerKey: Uint8Array;
+      try {
+        applicationServerKey = urlBase64ToUint8Array(vapidPublicKey);
+      } catch {
+        showError(
+          "VAPID公開鍵の形式が不正です（NEXT_PUBLIC_VAPID_PUBLIC_KEY）",
+        );
+        return;
+      }
+
+      if (applicationServerKey.byteLength !== 65) {
+        showError(
+          `VAPID公開鍵が不正です（期待: 65 bytes / 実際: ${applicationServerKey.byteLength} bytes）`,
+        );
+        return;
+      }
+
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+        applicationServerKey: applicationServerKey.buffer as ArrayBuffer,
       });
 
       await saveSubscriptionToSupabase(sub);

@@ -41,7 +41,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { Fragment, type MouseEvent, useMemo, useState } from "react";
+import { Fragment, type MouseEvent, useState } from "react";
 import useSWR from "swr";
 import { api } from "@/lib/api";
 import type { PriceAlert, WatchlistItem } from "@/types";
@@ -60,15 +60,14 @@ export default function WatchlistAlertPanel() {
   const { showSuccess, showError } = useToast();
 
   const [editAlert, setEditAlert] = useState<PriceAlert | null>(null);
+  const [createAlertTicker, setCreateAlertTicker] = useState<string | null>(
+    null,
+  );
   const [editAlertType, setEditAlertType] = useState<"above" | "below">(
     "below",
   );
   const [editTargetPrice, setEditTargetPrice] = useState("");
   const [editLoading, setEditLoading] = useState(false);
-
-  const [alertDialogTicker, setAlertDialogTicker] = useState<string | null>(
-    null,
-  );
 
   const [menuAnchorEl, setMenuAnchorEl] = useState<HTMLElement | null>(null);
   const [menuTarget, setMenuTarget] = useState<WatchlistItem | null>(null);
@@ -99,12 +98,29 @@ export default function WatchlistAlertPanel() {
 
   const openEditDialog = (alert: PriceAlert) => {
     setEditAlert(alert);
+    setCreateAlertTicker(null);
     setEditAlertType(alert.alert_type);
     setEditTargetPrice(String(alert.target_price));
   };
 
-  const openAlertManager = (ticker: string) => {
-    setAlertDialogTicker(ticker);
+  const openCreateDialog = (ticker: string, currentPrice?: number) => {
+    setEditAlert(null);
+    setCreateAlertTicker(ticker);
+    setEditAlertType("below");
+    if (
+      typeof currentPrice === "number" &&
+      Number.isFinite(currentPrice) &&
+      currentPrice > 0
+    ) {
+      setEditTargetPrice(String(Math.round(currentPrice * 0.97)));
+    } else {
+      setEditTargetPrice("");
+    }
+  };
+
+  const closeAlertDialog = () => {
+    setEditAlert(null);
+    setCreateAlertTicker(null);
   };
 
   const handleMenuOpen = (e: MouseEvent<HTMLElement>, item: WatchlistItem) => {
@@ -136,15 +152,23 @@ export default function WatchlistAlertPanel() {
     }
   };
 
-  const expandedAlerts = useMemo(() => {
-    if (!expandedTicker) return [];
-    return alertsByTicker[expandedTicker] || [];
-  }, [alertsByTicker, expandedTicker]);
+  const handleCreateAlert = async () => {
+    if (!createAlertTicker) return;
+    const nextPrice = Number.parseFloat(editTargetPrice);
+    if (Number.isNaN(nextPrice)) return;
 
-  const alertDialogAlerts = useMemo(() => {
-    if (!alertDialogTicker) return [];
-    return alertsByTicker[alertDialogTicker] || [];
-  }, [alertDialogTicker, alertsByTicker]);
+    setEditLoading(true);
+    try {
+      await api.createPriceAlert(createAlertTicker, editAlertType, nextPrice);
+      mutateAlerts();
+      showSuccess("アラートを追加しました");
+      setCreateAlertTicker(null);
+    } catch {
+      showError("追加に失敗しました");
+    } finally {
+      setEditLoading(false);
+    }
+  };
 
   const handleDeleteWatchlist = async (id: string) => {
     try {
@@ -240,6 +264,13 @@ export default function WatchlistAlertPanel() {
               onClick={() => setWatchlistDialogOpen(true)}
               size="small"
               fullWidth={isMobile}
+              sx={
+                !isMobile
+                  ? {
+                      width: "100px",
+                    }
+                  : undefined
+              }
             >
               銘柄追加
             </Button>
@@ -264,7 +295,14 @@ export default function WatchlistAlertPanel() {
         <Box display="flex" flexDirection="column" gap={1.25}>
           {watchlist.map((item) => {
             const itemAlerts = alertsByTicker[item.ticker] || [];
-            const activeItemAlerts = itemAlerts.filter((a) => a.is_active);
+            const sortedItemAlerts = [...itemAlerts].sort((a, b) => {
+              if (a.alert_type !== b.alert_type) {
+                return a.alert_type === "below" ? -1 : 1;
+              }
+              return a.alert_type === "below"
+                ? b.target_price - a.target_price
+                : a.target_price - b.target_price;
+            });
             const isExpanded = expandedTicker === item.ticker;
 
             return (
@@ -309,17 +347,10 @@ export default function WatchlistAlertPanel() {
                       </Typography>
                       <Chip
                         icon={<NotificationsActiveIcon />}
-                        label={activeItemAlerts.length}
+                        label={itemAlerts.length}
                         size="small"
-                        color={
-                          activeItemAlerts.length > 0 ? "warning" : "default"
-                        }
+                        color={itemAlerts.length > 0 ? "warning" : "default"}
                         variant="outlined"
-                        clickable
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openAlertManager(item.ticker);
-                        }}
                         sx={{ height: 20, fontWeight: 900 }}
                       />
                     </Box>
@@ -372,9 +403,155 @@ export default function WatchlistAlertPanel() {
                       borderLeftColor: "custom.accent",
                     }}
                   >
+                    <Box
+                      sx={{
+                        p: 2,
+                        mb: 1.5,
+                        bgcolor: "rgba(0,0,0,0.3)",
+                        borderRadius: 2,
+                        border: "1px solid rgba(255,255,255,0.05)",
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onTouchStart={(e) => e.stopPropagation()}
+                    >
+                      <Box
+                        display="flex"
+                        justifyContent="space-between"
+                        alignItems="center"
+                        gap={1}
+                        mb={1}
+                        flexWrap="wrap"
+                      >
+                        <Box
+                          display="flex"
+                          alignItems="center"
+                          gap={1}
+                          flexWrap="wrap"
+                        >
+                          <NotificationsActiveIcon color="primary" />
+                          <Typography variant="subtitle2" fontWeight="bold">
+                            価格アラート
+                          </Typography>
+                          <Chip
+                            label={`${sortedItemAlerts.length}件`}
+                            size="small"
+                            variant="outlined"
+                          />
+                        </Box>
+
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={<AddIcon />}
+                          onClick={() =>
+                            openCreateDialog(item.ticker, item.currentPrice)
+                          }
+                        >
+                          追加
+                        </Button>
+                      </Box>
+
+                      {sortedItemAlerts.length === 0 ? (
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          display="block"
+                        >
+                          アラートは未登録です
+                        </Typography>
+                      ) : (
+                        <Box display="flex" flexDirection="column" gap={1}>
+                          {sortedItemAlerts.map((alert, idx) => (
+                            <Box
+                              key={alert.id}
+                              display="flex"
+                              alignItems="center"
+                              justifyContent="space-between"
+                              gap={1}
+                              sx={{
+                                px: 1,
+                                py: 0.75,
+                                borderRadius: 1.5,
+                                bgcolor: "rgba(255,255,255,0.04)",
+                                border: "1px solid",
+                                borderColor: "divider",
+                              }}
+                            >
+                              <Box
+                                display="flex"
+                                alignItems="center"
+                                gap={1}
+                                flexWrap="wrap"
+                              >
+                                <Chip
+                                  label={`A${idx + 1}`}
+                                  size="small"
+                                  variant="outlined"
+                                  sx={{ fontWeight: 900 }}
+                                />
+                                <Chip
+                                  icon={
+                                    alert.alert_type === "above" ? (
+                                      <TrendingUpIcon />
+                                    ) : (
+                                      <TrendingDownIcon />
+                                    )
+                                  }
+                                  label={`${alert.alert_type === "above" ? "以上" : "以下"} ¥${alert.target_price.toLocaleString()}`}
+                                  size="small"
+                                  color={
+                                    alert.alert_type === "above"
+                                      ? "success"
+                                      : "error"
+                                  }
+                                  variant="outlined"
+                                  sx={{ fontWeight: 900 }}
+                                />
+
+                                {!alert.is_active && (
+                                  <Chip
+                                    label="発動済"
+                                    size="small"
+                                    variant="outlined"
+                                  />
+                                )}
+                              </Box>
+
+                              <Box display="flex" alignItems="center" gap={0.5}>
+                                {!alert.is_active && (
+                                  <IconButton
+                                    size="small"
+                                    color="primary"
+                                    onClick={() =>
+                                      handleReactivateAlert(alert.id)
+                                    }
+                                  >
+                                    <ReplayIcon fontSize="small" />
+                                  </IconButton>
+                                )}
+                                <IconButton
+                                  size="small"
+                                  onClick={() => openEditDialog(alert)}
+                                >
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                                <IconButton
+                                  size="small"
+                                  color="error"
+                                  onClick={() => handleDeleteAlert(alert.id)}
+                                >
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </Box>
+                            </Box>
+                          ))}
+                        </Box>
+                      )}
+                    </Box>
                     <StockDetailPanel
                       ticker={item.ticker}
-                      priceAlerts={expandedAlerts}
+                      priceAlerts={sortedItemAlerts}
                     />
                   </Box>
                 </Collapse>
@@ -405,7 +582,14 @@ export default function WatchlistAlertPanel() {
             <TableBody>
               {watchlist.map((item) => {
                 const itemAlerts = alertsByTicker[item.ticker] || [];
-                const activeItemAlerts = itemAlerts.filter((a) => a.is_active);
+                const sortedItemAlerts = [...itemAlerts].sort((a, b) => {
+                  if (a.alert_type !== b.alert_type) {
+                    return a.alert_type === "below" ? -1 : 1;
+                  }
+                  return a.alert_type === "below"
+                    ? b.target_price - a.target_price
+                    : a.target_price - b.target_price;
+                });
                 const isExpanded = expandedTicker === item.ticker;
 
                 return (
@@ -473,31 +657,13 @@ export default function WatchlistAlertPanel() {
                         )}
                       </TableCell>
                       <TableCell align="center">
-                        {activeItemAlerts.length > 0 ? (
-                          <Chip
-                            icon={<NotificationsActiveIcon />}
-                            label={activeItemAlerts.length}
-                            size="small"
-                            color="warning"
-                            clickable
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openAlertManager(item.ticker);
-                            }}
-                          />
-                        ) : (
-                          <Chip
-                            icon={<NotificationsActiveIcon />}
-                            label={0}
-                            size="small"
-                            variant="outlined"
-                            clickable
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openAlertManager(item.ticker);
-                            }}
-                          />
-                        )}
+                        <Chip
+                          icon={<NotificationsActiveIcon />}
+                          label={itemAlerts.length}
+                          size="small"
+                          color={itemAlerts.length > 0 ? "warning" : "default"}
+                          variant="outlined"
+                        />
                       </TableCell>
                       <TableCell
                         align="center"
@@ -524,9 +690,173 @@ export default function WatchlistAlertPanel() {
                                 borderLeftColor: "custom.accent",
                               }}
                             >
+                              <Box
+                                sx={{
+                                  p: 2,
+                                  mb: 1.5,
+                                  bgcolor: "rgba(0,0,0,0.3)",
+                                  borderRadius: 2,
+                                  border: "1px solid rgba(255,255,255,0.05)",
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onTouchStart={(e) => e.stopPropagation()}
+                              >
+                                <Box
+                                  display="flex"
+                                  justifyContent="space-between"
+                                  alignItems="center"
+                                  gap={1}
+                                  mb={1}
+                                  flexWrap="wrap"
+                                >
+                                  <Box
+                                    display="flex"
+                                    alignItems="center"
+                                    gap={1}
+                                    flexWrap="wrap"
+                                  >
+                                    <NotificationsActiveIcon color="primary" />
+                                    <Typography
+                                      variant="subtitle2"
+                                      fontWeight="bold"
+                                    >
+                                      価格アラート
+                                    </Typography>
+                                    <Chip
+                                      label={`${sortedItemAlerts.length}件`}
+                                      size="small"
+                                      variant="outlined"
+                                    />
+                                  </Box>
+
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    startIcon={<AddIcon />}
+                                    onClick={() =>
+                                      openCreateDialog(
+                                        item.ticker,
+                                        item.currentPrice,
+                                      )
+                                    }
+                                  >
+                                    追加
+                                  </Button>
+                                </Box>
+
+                                {sortedItemAlerts.length === 0 ? (
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    display="block"
+                                  >
+                                    アラートは未登録です
+                                  </Typography>
+                                ) : (
+                                  <Box
+                                    display="flex"
+                                    flexDirection="column"
+                                    gap={1}
+                                  >
+                                    {sortedItemAlerts.map((alert, idx) => (
+                                      <Box
+                                        key={alert.id}
+                                        display="flex"
+                                        alignItems="center"
+                                        justifyContent="space-between"
+                                        gap={1}
+                                        sx={{
+                                          px: 1,
+                                          py: 0.75,
+                                          borderRadius: 1.5,
+                                          bgcolor: "rgba(255,255,255,0.04)",
+                                          border: "1px solid",
+                                          borderColor: "divider",
+                                        }}
+                                      >
+                                        <Box
+                                          display="flex"
+                                          alignItems="center"
+                                          gap={1}
+                                          flexWrap="wrap"
+                                        >
+                                          <Chip
+                                            label={`A${idx + 1}`}
+                                            size="small"
+                                            variant="outlined"
+                                            sx={{ fontWeight: 900 }}
+                                          />
+                                          <Chip
+                                            icon={
+                                              alert.alert_type === "above" ? (
+                                                <TrendingUpIcon />
+                                              ) : (
+                                                <TrendingDownIcon />
+                                              )
+                                            }
+                                            label={`${alert.alert_type === "above" ? "以上" : "以下"} ¥${alert.target_price.toLocaleString()}`}
+                                            size="small"
+                                            color={
+                                              alert.alert_type === "above"
+                                                ? "success"
+                                                : "error"
+                                            }
+                                            variant="outlined"
+                                            sx={{ fontWeight: 900 }}
+                                          />
+
+                                          {!alert.is_active && (
+                                            <Chip
+                                              label="発動済"
+                                              size="small"
+                                              variant="outlined"
+                                            />
+                                          )}
+                                        </Box>
+
+                                        <Box
+                                          display="flex"
+                                          alignItems="center"
+                                          gap={0.5}
+                                        >
+                                          {!alert.is_active && (
+                                            <IconButton
+                                              size="small"
+                                              color="primary"
+                                              onClick={() =>
+                                                handleReactivateAlert(alert.id)
+                                              }
+                                            >
+                                              <ReplayIcon fontSize="small" />
+                                            </IconButton>
+                                          )}
+                                          <IconButton
+                                            size="small"
+                                            onClick={() =>
+                                              openEditDialog(alert)
+                                            }
+                                          >
+                                            <EditIcon fontSize="small" />
+                                          </IconButton>
+                                          <IconButton
+                                            size="small"
+                                            color="error"
+                                            onClick={() =>
+                                              handleDeleteAlert(alert.id)
+                                            }
+                                          >
+                                            <DeleteIcon fontSize="small" />
+                                          </IconButton>
+                                        </Box>
+                                      </Box>
+                                    ))}
+                                  </Box>
+                                )}
+                              </Box>
                               <StockDetailPanel
                                 ticker={item.ticker}
-                                priceAlerts={expandedAlerts}
+                                priceAlerts={sortedItemAlerts}
                               />
                             </Box>
                           </Box>
@@ -547,19 +877,6 @@ export default function WatchlistAlertPanel() {
         onClose={handleMenuClose}
       >
         <MuiMenuItem
-          onClick={() => {
-            if (menuTarget) {
-              openAlertManager(menuTarget.ticker);
-            }
-            handleMenuClose();
-          }}
-        >
-          <ListItemIcon>
-            <NotificationsActiveIcon fontSize="small" />
-          </ListItemIcon>
-          アラート
-        </MuiMenuItem>
-        <MuiMenuItem
           onClick={async () => {
             if (menuTarget) {
               await handleDeleteWatchlist(menuTarget.id);
@@ -576,108 +893,14 @@ export default function WatchlistAlertPanel() {
       </Menu>
 
       <Dialog
-        open={!!alertDialogTicker}
-        onClose={() => setAlertDialogTicker(null)}
-        fullWidth
-        maxWidth="sm"
-      >
-        <DialogTitle>価格アラート</DialogTitle>
-        <DialogContent>
-          <Typography variant="caption" color="text.secondary" display="block">
-            {alertDialogTicker || ""}
-          </Typography>
-
-          {alertDialogAlerts.length === 0 ? (
-            <Typography color="text.secondary" sx={{ mt: 2 }}>
-              この銘柄のアラートはありません
-            </Typography>
-          ) : (
-            <Box sx={{ mt: 2 }} display="flex" flexDirection="column" gap={1}>
-              {alertDialogAlerts.map((alert) => (
-                <Box
-                  key={alert.id}
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="space-between"
-                  gap={1}
-                  sx={{
-                    px: 1,
-                    py: 0.75,
-                    borderRadius: 1.5,
-                    bgcolor: "rgba(255,255,255,0.04)",
-                    border: "1px solid",
-                    borderColor: "divider",
-                  }}
-                >
-                  <Box
-                    display="flex"
-                    alignItems="center"
-                    gap={1}
-                    flexWrap="wrap"
-                  >
-                    <Chip
-                      icon={
-                        alert.alert_type === "above" ? (
-                          <TrendingUpIcon />
-                        ) : (
-                          <TrendingDownIcon />
-                        )
-                      }
-                      label={`${alert.alert_type === "above" ? "以上" : "以下"} ¥${alert.target_price.toLocaleString()}`}
-                      size="small"
-                      color={alert.alert_type === "above" ? "success" : "error"}
-                      variant="outlined"
-                      sx={{ fontWeight: 900 }}
-                    />
-
-                    {!alert.is_active && (
-                      <Chip label="発動済" size="small" variant="outlined" />
-                    )}
-                  </Box>
-
-                  <Box display="flex" alignItems="center" gap={0.5}>
-                    {!alert.is_active && (
-                      <IconButton
-                        size="small"
-                        color="primary"
-                        onClick={() => handleReactivateAlert(alert.id)}
-                      >
-                        <ReplayIcon fontSize="small" />
-                      </IconButton>
-                    )}
-                    <IconButton
-                      size="small"
-                      onClick={() => openEditDialog(alert)}
-                    >
-                      <EditIcon fontSize="small" />
-                    </IconButton>
-                    <IconButton
-                      size="small"
-                      color="error"
-                      onClick={() => handleDeleteAlert(alert.id)}
-                    >
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </Box>
-                </Box>
-              ))}
-            </Box>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setAlertDialogTicker(null)} color="inherit">
-            閉じる
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog
-        open={!!editAlert}
-        onClose={() => setEditAlert(null)}
+        open={!!editAlert || !!createAlertTicker}
+        onClose={closeAlertDialog}
         fullWidth
         maxWidth="xs"
       >
-        <DialogTitle>アラートを編集</DialogTitle>
+        <DialogTitle>
+          {editAlert ? "アラートを編集" : "アラートを追加"}
+        </DialogTitle>
         <DialogContent>
           <FormControl fullWidth sx={{ mt: 1 }}>
             <InputLabel>条件</InputLabel>
@@ -718,15 +941,15 @@ export default function WatchlistAlertPanel() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setEditAlert(null)} color="inherit">
+          <Button onClick={closeAlertDialog} color="inherit">
             キャンセル
           </Button>
           <Button
-            onClick={handleUpdateAlert}
+            onClick={editAlert ? handleUpdateAlert : handleCreateAlert}
             variant="contained"
             disabled={editLoading || !editTargetPrice}
           >
-            更新
+            {editAlert ? "更新" : "追加"}
           </Button>
         </DialogActions>
       </Dialog>

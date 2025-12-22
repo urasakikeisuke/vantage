@@ -154,8 +154,23 @@ async function syncPortfolio() {
 self.addEventListener("push", (event) => {
   const data = event.data?.json() || {};
   const title = data.title || "Vantage";
+  let body = typeof data.body === "string" ? data.body : "";
+  if (!body) body = "新しい通知があります";
+
+  const m =
+    /^(.+?) が ([0-9,]+) を(上回りました|下回りました) \(現在 ([0-9,]+)\)$/.exec(
+      body,
+    );
+  if (m) {
+    const stockLabel = m[1];
+    const target = m[2];
+    const directionLabel = m[3] === "上回りました" ? "以上" : "以下";
+    const current = m[4];
+    body = `${stockLabel}\n条件: ${target}円 ${directionLabel}\n現在値: ${current}円`;
+  }
+
   const options = {
-    body: data.body || "新しい通知があります",
+    body,
     icon: "/icons/ios/192.png",
     badge: "/icons/ios/192.png",
     data: data.url,
