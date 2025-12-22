@@ -135,72 +135,109 @@ export default function NotificationsDialog({
 
       <Box sx={{ overflow: "auto" }}>
         <List dense>
-          {(notifications ?? []).map((n) => (
-            <ListItem
-              key={n.id}
-              disablePadding
-              secondaryAction={
-                <Box display="flex" alignItems="center" gap={0.5}>
-                  <IconButton
-                    size="small"
-                    onClick={() => void handleToggleRead(n)}
-                  >
-                    {n.is_read ? (
-                      <MarkunreadIcon fontSize="small" />
-                    ) : (
-                      <DoneIcon fontSize="small" />
-                    )}
-                  </IconButton>
-                  <IconButton
-                    size="small"
-                    color="error"
-                    onClick={() => void handleDelete(n.id)}
-                  >
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </Box>
-              }
-              sx={{ py: 0.75, px: 2 }}
-            >
-              <Box
-                sx={{ width: "100%", pr: 7, cursor: "pointer" }}
-                onClick={() => void handleOpenNotification(n)}
-              >
-                <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                  <Typography
-                    variant="body2"
-                    fontWeight={n.is_read ? 500 : 900}
-                  >
-                    {n.title}
-                  </Typography>
-                  <Chip
-                    label={n.is_read ? "既読" : "未読"}
-                    size="small"
-                    variant={n.is_read ? "outlined" : "filled"}
-                    color={n.is_read ? "default" : "primary"}
-                    sx={{ height: 20, fontSize: "0.65rem" }}
-                  />
-                </Box>
+          {(notifications ?? []).map((n) => {
+            const data = n.data ?? {};
+            const ticker = typeof data.ticker === "string" ? data.ticker : null;
+            const name = typeof data.name === "string" ? data.name : null;
+            const alertType =
+              data.alert_type === "above" || data.alert_type === "below"
+                ? (data.alert_type as "above" | "below")
+                : null;
+            const targetPrice =
+              typeof data.target_price === "number" ? data.target_price : null;
+            const currentPrice =
+              typeof data.current_price === "number"
+                ? data.current_price
+                : null;
 
-                <ListItemText
-                  primary={
+            const isPriceAlert = n.type === "price_alert";
+            const displayTitle = isPriceAlert ? "価格アラート" : n.title;
+
+            let displayBody = n.body;
+            if (
+              isPriceAlert &&
+              ticker &&
+              alertType &&
+              targetPrice &&
+              currentPrice
+            ) {
+              const stockLabel = name ? `${name} (${ticker})` : ticker;
+              const directionLabel = alertType === "above" ? "以上" : "以下";
+              displayBody = `${stockLabel}\n条件: ¥${Math.round(targetPrice).toLocaleString()} ${directionLabel}\n現在値: ¥${Math.round(currentPrice).toLocaleString()}`;
+            }
+
+            return (
+              <ListItem
+                key={n.id}
+                disablePadding
+                secondaryAction={
+                  <Box display="flex" alignItems="center" gap={0.5}>
+                    <IconButton
+                      size="small"
+                      onClick={() => void handleToggleRead(n)}
+                    >
+                      {n.is_read ? (
+                        <MarkunreadIcon fontSize="small" />
+                      ) : (
+                        <DoneIcon fontSize="small" />
+                      )}
+                    </IconButton>
+                    <IconButton
+                      size="small"
+                      color="error"
+                      onClick={() => void handleDelete(n.id)}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                }
+                sx={{ py: 0.75, px: 2 }}
+              >
+                <Box
+                  sx={{ width: "100%", pr: 7, cursor: "pointer" }}
+                  onClick={() => void handleOpenNotification(n)}
+                >
+                  <Box
+                    display="flex"
+                    alignItems="center"
+                    gap={1}
+                    flexWrap="wrap"
+                  >
                     <Typography
                       variant="body2"
-                      color={n.is_read ? "text.secondary" : "text.primary"}
-                      sx={{ mt: 0.25 }}
+                      fontWeight={n.is_read ? 500 : 900}
                     >
-                      {n.body}
+                      {displayTitle}
                     </Typography>
-                  }
-                  secondary={
-                    <Typography variant="caption" color="text.secondary">
-                      {new Date(n.created_at).toLocaleString()}
-                    </Typography>
-                  }
-                />
-              </Box>
-            </ListItem>
-          ))}
+                    <Chip
+                      label={n.is_read ? "既読" : "未読"}
+                      size="small"
+                      variant={n.is_read ? "outlined" : "filled"}
+                      color={n.is_read ? "default" : "primary"}
+                      sx={{ height: 20, fontSize: "0.65rem" }}
+                    />
+                  </Box>
+
+                  <ListItemText
+                    primary={
+                      <Typography
+                        variant="body2"
+                        color={n.is_read ? "text.secondary" : "text.primary"}
+                        sx={{ mt: 0.25, whiteSpace: "pre-line" }}
+                      >
+                        {displayBody}
+                      </Typography>
+                    }
+                    secondary={
+                      <Typography variant="caption" color="text.secondary">
+                        {new Date(n.created_at).toLocaleString()}
+                      </Typography>
+                    }
+                  />
+                </Box>
+              </ListItem>
+            );
+          })}
 
           {(notifications?.length ?? 0) === 0 && !isLoading && (
             <Box sx={{ py: 3, px: 2 }}>
